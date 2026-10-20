@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # One-time preparation of a fresh Ubuntu/Debian VPS (run as root):
-#   Docker Engine + Compose plugin, firewall (SSH, HTTP, HTTPS only), swap on small servers,
-#   automatic security updates, and the /opt/manara folder.
-# Usage: sudo bash deploy/vps/setup-server.sh
+#   Docker Engine + Compose plugin, git, firewall (SSH, HTTP, HTTPS only), swap on small servers,
+#   automatic security updates, a read-only GitHub deploy key, and the code in /opt/manara/app.
+# The repository is private, so this file is copied to the server on its own first:
+#   scp deploy/vps/setup-server.sh root@<VPS-IP>:/root/
+#   ssh root@<VPS-IP> bash /root/setup-server.sh
 set -euo pipefail
+
+REPO="${REPO:-abdallan45/Manara-employee-portal}"
+APP_DIR=/opt/manara/app
+KEY=/root/.ssh/manara_deploy
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run as root (sudo bash $0)" >&2
@@ -12,7 +18,7 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y ca-certificates curl openssl ufw unattended-upgrades
+apt-get install -y ca-certificates curl git openssl ufw unattended-upgrades
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Installing Docker Engine (official repository)..."
@@ -49,8 +55,45 @@ fi
 
 dpkg-reconfigure -f noninteractive unattended-upgrades
 timedatectl set-timezone Asia/Amman || true
-
 mkdir -p /opt/manara/backups
+
+# Read-only access to the private repository: a deploy key that belongs to this server only.
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+if [ ! -f "$KEY" ]; then
+  ssh-keygen -t ed25519 -N '' -C "manara-vps-deploy" -f "$KEY" >/dev/null
+fi
+# GitHub's published host key (docs.github.com, "GitHub's SSH key fingerprints"), so the first
+# connection cannot be intercepted.
+grep -q '^github.com ssh-ed25519 ' /root/.ssh/known_hosts 2>/dev/null \
+  || echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> /root/.ssh/known_hosts
+if ! grep -q '^Host github-manara$' /root/.ssh/config 2>/dev/null; then
+  cat >> /root/.ssh/config <<EOF
+Host github-manara
+  HostName github.com
+  User git
+  IdentityFile $KEY
+  IdentitiesOnly yes
+EOF
+  chmod 600 /root/.ssh/config
+fi
+
+until GIT_SSH_COMMAND='ssh -o BatchMode=yes' git ls-remote "git@github-manara:${REPO}.git" >/dev/null 2>&1; do
+  echo
+  echo "Add this key to GitHub: https://github.com/${REPO}/settings/keys -> Add deploy key"
+  echo "(title: manara-vps, leave \"Allow write access\" OFF)"
+  echo
+  cat "$KEY.pub"
+  echo
+  read -r -p "Press Enter after adding it... "
+done
+
+if [ -d "$APP_DIR/.git" ]; then
+  git -C "$APP_DIR" pull --ff-only
+else
+  git clone "git@github-manara:${REPO}.git" "$APP_DIR"
+fi
+
 echo
-echo "Server ready. Next: unpack the release into /opt/manara/app and run"
-echo "  cd /opt/manara/app && sudo bash deploy/vps/deploy.sh portal.manaralab.tech you@example.com"
+echo "Server ready, code in $APP_DIR. Next:"
+echo "  bash $APP_DIR/deploy/vps/deploy.sh portal.manaralab.tech you@example.com"

@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # Builds and starts the portal on a public VPS with a Let's Encrypt certificate.
 # First run: writes deploy/.env with fresh random secrets, then seeds the admin account and
-# Nouria's lines. Later runs (after copying a new release over the old one): rebuild and restart;
+# Nouria's lines. Later runs (update.sh calls this after git pull): rebuild and restart;
 # deploy/.env and the database are kept.
-# Usage (from the unpacked release folder, as root):
-#   sudo bash deploy/vps/deploy.sh portal.manaralab.tech you@example.com
+# Usage (in /opt/manara/app, as root):
+#   first run:   bash deploy/vps/deploy.sh portal.manaralab.tech you@example.com
+#   later runs:  bash deploy/vps/deploy.sh   (domain and email are read from deploy/.env)
 set -euo pipefail
 
-DOMAIN="${1:?usage: deploy.sh <domain> <email for Let's Encrypt>}"
-EMAIL="${2:?usage: deploy.sh <domain> <email for Let's Encrypt>}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="$ROOT/deploy/.env"
+env_value() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n 1; }
+DOMAIN="${1:-$(env_value SITE_ADDRESS)}"
+EMAIL="${2:-$(env_value ACME_EMAIL)}"
+if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
+  echo "usage: deploy.sh <domain> <email for the certificate>" >&2
+  exit 1
+fi
 STATE_DIR=/opt/manara
 COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml" --env-file "$ENV_FILE")
 

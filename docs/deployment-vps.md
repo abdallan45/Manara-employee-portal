@@ -27,24 +27,30 @@ Check from any computer: `nslookup portal.manaralab.tech` must return the VPS ad
 Recommended: Ubuntu 24.04, at least 2 vCPU / 4 GB RAM (KVM 2). In the Hostinger panel, if its
 own firewall is enabled, allow TCP 22, 80, 443 and UDP 443.
 
-From Windows, pack and upload the release (PowerShell, in the repo):
+The server gets the code straight from the private GitHub repository
+(`abdallan45/Manara-employee-portal`, branch `main`). Only the setup script is copied by hand,
+because the server cannot read the repository yet (PowerShell, in the repo):
 
 ```powershell
-powershell -File deploy\vps\make-release.ps1
-scp ..\manara-release.tar.gz root@<VPS-IP>:/opt/
+scp deploy\vps\setup-server.sh root@<VPS-IP>:/root/
+ssh root@<VPS-IP>
 ```
 
-On the server (`ssh root@<VPS-IP>`):
+On the server:
 
 ```sh
-mkdir -p /opt/manara/app
-tar -xzf /opt/manara-release.tar.gz -C /opt/manara/app
-bash /opt/manara/app/deploy/vps/setup-server.sh
+bash /root/setup-server.sh
 ```
 
-`setup-server.sh` installs Docker from Docker's repository, enables the firewall (SSH, 80, 443),
-adds swap on servers with less than ~3.5 GB RAM, turns on automatic security updates and sets the
-time zone to Asia/Amman.
+`setup-server.sh` installs Docker from Docker's repository and git, enables the firewall (SSH, 80,
+443), adds swap on servers with less than ~3.5 GB RAM, turns on automatic security updates and sets
+the time zone to Asia/Amman. Then it creates a **deploy key** for this server and prints it:
+
+1. Open the repository on GitHub -> **Settings -> Deploy keys -> Add deploy key**.
+2. Title `manara-vps`, paste the printed key, leave **Allow write access** off, save.
+3. Press Enter on the server. The script clones the code into `/opt/manara/app`.
+
+The deploy key can only read this one repository; delete it on GitHub to cut the server off.
 
 ## 3. Start
 
@@ -81,19 +87,17 @@ Demo accounts and one-click login are off in production (`DEMO_MODE=false`, no d
 
 ## 5. Updating
 
-```powershell
-powershell -File deploy\vps\make-release.ps1
-scp ..\manara-release.tar.gz root@<VPS-IP>:/opt/
-```
+Push the changes to GitHub (`git push` on your computer), then on the server:
 
 ```sh
-cd /opt/manara/app
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec backup sh /backup.sh --once   # manual backup first
-tar -xzf /opt/manara-release.tar.gz -C /opt/manara/app   # keeps deploy/.env (not in the release)
-bash deploy/vps/deploy.sh portal.manaralab.tech <your email>
+bash /opt/manara/app/deploy/vps/update.sh
 ```
 
-Migrations run automatically when the app container starts.
+It shows the new commits, takes a backup, pulls `main`, rebuilds and restarts. `deploy/.env` and
+the database are kept (`.env` is not in git); migrations run when the app container starts.
+
+Without GitHub access (for example a server that cannot reach it),
+`deploy/vps/make-release.ps1` packs the source into a tar file to copy with `scp` instead.
 
 ## 6. Backups
 
