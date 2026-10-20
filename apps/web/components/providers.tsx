@@ -6,6 +6,8 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 // Side effect: adds the first popstate listener before Next.js adds its own (see the module).
 import '@/lib/history-guard';
+// Side effect: catches the browser's one-time install offer before the menu is on screen.
+import '@/lib/install-prompt';
 import { I18nProvider, useI18n } from '@/lib/i18n/context';
 import { ThemeProvider, useTheme } from '@/lib/theme';
 

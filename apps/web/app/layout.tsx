@@ -9,7 +9,8 @@ export const metadata: Metadata = {
   description: 'Manara employee portal: attendance, leave, overtime and requests',
   applicationName: 'Employee Portal',
   manifest: '/manifest.webmanifest',
-  icons: { icon: '/icon.svg', apple: '/icon.svg' },
+  // iOS ignores SVG for the home-screen icon.
+  icons: { icon: '/icon.svg', apple: '/apple-touch-icon.png' },
   appleWebApp: { capable: true, title: 'Employee Portal', statusBarStyle: 'black-translucent' },
 };
 

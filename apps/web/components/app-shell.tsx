@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { BrandMark, BrandWordmark } from '@/components/brand';
 import { CommandPalette } from '@/components/command-palette';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { InstallAppButton } from '@/components/install-app-button';
 import { LanguageToggle } from '@/components/language-toggle';
 import { NotificationsBell } from '@/components/notifications-bell';
 import { ThemeToggle, useThemeSwitch } from '@/components/theme-toggle';
@@ -576,6 +577,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex-1 overflow-y-auto px-3 py-3">
             <NavLinks rail={collapsed} counts={counts} collapsedGroups={collapsedGroups} onToggleGroup={toggleGroup} idPrefix="side" />
           </div>
+          <div className={cn('shrink-0 border-t border-tint/[0.06] p-3', collapsed && 'flex justify-center')}>
+            <InstallAppButton rail={collapsed} />
+          </div>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -706,9 +710,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 idPrefix="drawer"
               />
             </div>
-            <div className="flex gap-2 border-t border-tint/[0.06] p-4">
-              <LanguageToggle onChange={changeLocale} className="flex-1" />
-              <ThemeToggle withLabel className="flex-1" />
+            <div className="space-y-2 border-t border-tint/[0.06] p-4">
+              <InstallAppButton onDone={() => setDrawerOpen(false)} />
+              <div className="flex gap-2">
+                <LanguageToggle onChange={changeLocale} className="flex-1" />
+                <ThemeToggle withLabel className="flex-1" />
+              </div>
             </div>
           </SheetContent>
         </Sheet>

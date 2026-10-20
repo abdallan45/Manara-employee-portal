@@ -106,6 +106,27 @@ export const en = {
     account: 'Account',
     more: 'More',
   },
+  install: {
+    button: 'Install the app',
+    title: 'Install the portal on your phone',
+    description: 'It opens full screen from its own icon, like any app.',
+    iosTitle: 'On iPhone and iPad (Safari)',
+    iosSteps: [
+      'Tap the Share button at the bottom of Safari (a square with an arrow).',
+      'Scroll down and tap "Add to Home Screen".',
+      'Tap "Add". The icon appears on your home screen.',
+    ],
+    iosOtherBrowser: 'In Chrome or another browser on iPhone, open the Share menu and choose "Add to Home Screen". If it is missing, open the portal in Safari.',
+    androidTitle: 'On Android (Chrome)',
+    androidSteps: [
+      'Tap the menu ⋮ at the top of Chrome.',
+      'Tap "Install app" or "Add to Home screen".',
+      'Confirm with "Install".',
+    ],
+    desktopTitle: 'On a computer (Chrome or Edge)',
+    desktopSteps: ['Click the install icon at the end of the address bar, or open the browser menu and choose "Install".'],
+    close: 'Done',
+  },
   errors: {
     VALIDATION_FAILED: 'Some fields are invalid. Check the form and try again.',
     UNAUTHENTICATED: 'Your session has ended. Please sign in again.',
