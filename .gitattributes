@@ -1,0 +1,5 @@
+# Keep LF in files that are read by Linux containers or checksummed by Prisma.
+*.sh text eol=lf
+*.sql text eol=lf
+Dockerfile text eol=lf
+deploy/caddy/* text eol=lf
