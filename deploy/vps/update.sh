@@ -5,7 +5,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml" --env-file "$ROOT/deploy/.env")
+COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml")
+grep -qx 'PROXY=nginx' "$ROOT/deploy/.env" && COMPOSE+=(-f "$ROOT/deploy/docker-compose.nginx.yml")
+COMPOSE+=(--env-file "$ROOT/deploy/.env")
 
 before="$(git -C "$ROOT" rev-parse --short HEAD)"
 git -C "$ROOT" fetch --quiet origin main

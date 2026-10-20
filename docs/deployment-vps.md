@@ -9,6 +9,14 @@ backup job. Differences on a VPS:
 - Attendance is checked by **device location** (office geofences), which works from anywhere, so
   the company's internet line does not need a static IP.
 
+**Server that already hosts other sites with nginx** (the Manara VPS): `deploy.sh` notices nginx on
+port 80 and switches to `PROXY=nginx` mode. Caddy is not started; the app listens only on
+`127.0.0.1:4300` (`deploy/docker-compose.nginx.yml`), and `deploy.sh` adds an nginx site
+(`deploy/vps/nginx-portal.conf` -> `/etc/nginx/sites-available/manara-portal`) and gets the
+certificate with `certbot --nginx`, like the other sites. The other sites' configuration is not
+touched. In this mode skip the firewall and swap parts of `setup-server.sh` if the server is already
+set up; Docker and the deploy key are still needed.
+
 Tested parts: the app and its tests run locally. The Compose files and these scripts have not yet
 been run on a server; check each step's output.
 

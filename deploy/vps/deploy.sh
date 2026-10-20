@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Builds and starts the portal on a public VPS with a Let's Encrypt certificate.
+# Builds and starts the portal on a public VPS with a Let's Encrypt certificate. Two modes, chosen on
+# the first run and kept in deploy/.env (PROXY):
+#   caddy: nothing else on ports 80/443; Caddy in Docker serves the domain and gets the certificate.
+#   nginx: the server already runs nginx (other sites); the app listens on 127.0.0.1:APP_PORT and a
+#          site for the domain is added to nginx, with a certificate from certbot.
 # First run: writes deploy/.env with fresh random secrets, then seeds the admin account and
 # Nouria's lines. Later runs (update.sh calls this after git pull): rebuild and restart;
 # deploy/.env and the database are kept.
@@ -18,15 +22,17 @@ if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
   exit 1
 fi
 STATE_DIR=/opt/manara
-COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml" --env-file "$ENV_FILE")
 
 rand() { openssl rand -hex "$1"; }
 
 # 1. Configuration with fresh secrets (only when there is none yet).
 if [ ! -f "$ENV_FILE" ]; then
   mkdir -p "$STATE_DIR/backups"
+  if ss -tlnpH 'sport = :80' | grep -q nginx; then proxy=nginx; else proxy=caddy; fi
   umask 077
   cat > "$ENV_FILE" <<EOF
+PROXY=$proxy
+APP_PORT=4300
 POSTGRES_DB=workforce
 POSTGRES_USER=workforce
 POSTGRES_PASSWORD=$(rand 24)
@@ -44,7 +50,7 @@ BACKUP_HOUR=2
 BACKUP_PASSPHRASE=$(rand 24)
 EOF
   chmod 600 "$ENV_FILE"
-  echo "Created $ENV_FILE with new random secrets."
+  echo "Created $ENV_FILE with new random secrets (mode: $proxy)."
   echo "Copy AUDIT_HMAC_KEY and BACKUP_PASSPHRASE from it into the company password safe:"
   echo "without the passphrase the backups cannot be restored."
 fi
@@ -60,6 +66,12 @@ if [ -n "$server_ip" ] && [ "$dns_ip" != "$server_ip" ]; then
   echo "$DOMAIN points to $dns_ip, but this server is $server_ip. Fix the DNS A record first." >&2
   exit 1
 fi
+
+PROXY="$(env_value PROXY)"
+APP_PORT="$(env_value APP_PORT)"
+COMPOSE=(docker compose -f "$ROOT/deploy/docker-compose.yml")
+[ "$PROXY" = nginx ] && COMPOSE+=(-f "$ROOT/deploy/docker-compose.nginx.yml")
+COMPOSE+=(--env-file "$ENV_FILE")
 
 # 3. Build and start.
 "${COMPOSE[@]}" up -d --build
@@ -91,7 +103,21 @@ if [ ! -f "$STATE_DIR/.seeded" ]; then
   echo "Also saved in $STATE_DIR/admin-initial-password.txt (delete it after the first sign-in)."
 fi
 
+# 5. nginx mode: the site for the domain and its certificate (only when missing).
+if [ "$PROXY" = nginx ]; then
+  site=/etc/nginx/sites-available/manara-portal
+  if [ ! -f "$site" ]; then
+    sed -e "s/__DOMAIN__/$DOMAIN/g" -e "s/__APP_PORT__/${APP_PORT:-4300}/g" "$ROOT/deploy/vps/nginx-portal.conf" > "$site"
+    ln -sf "$site" /etc/nginx/sites-enabled/manara-portal
+    nginx -t
+    systemctl reload nginx
+  fi
+  if [ ! -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+    certbot --nginx -d "$DOMAIN" --redirect --non-interactive
+  fi
+fi
+
 echo
 echo "Done: https://$DOMAIN"
-echo "The certificate is requested on the first visit and can take up to a minute."
+[ "$PROXY" = nginx ] || echo "The certificate is requested on the first visit and can take up to a minute."
 echo "Next: sign in as admin, change the password, then Settings -> Office locations."

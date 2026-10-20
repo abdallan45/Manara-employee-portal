@@ -1,0 +1,15 @@
+# Override for a server that already runs nginx on ports 80/443 (shared VPS): Caddy is not started,
+# the app listens on 127.0.0.1:${APP_PORT} only, and the host's nginx proxies the domain to it
+# (deploy/vps/nginx-portal.conf, certificate from certbot).
+# Usage: docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.nginx.yml --env-file deploy/.env up -d
+services:
+  app:
+    ports:
+      - "127.0.0.1:${APP_PORT:-4300}:3000"
+    environment:
+      # The host's nginx reaches the container through the Docker bridge gateway.
+      TRUSTED_PROXIES: 172.28.0.1
+
+  caddy:
+    # Only started with --profile caddy, i.e. never in this mode.
+    profiles: ["caddy"]
