@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Manara · الحضور</title>
+  <meta name="theme-color" content="#0a0a0f">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="preload" href="/fonts/orbitron-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" dir="ltr">MANARA</span>
+      <span class="brand-title">نظام الحضور</span>
+    </div>
+    <span id="net" class="badge" hidden></span>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="login-view" class="card" hidden>
+      <h1>تسجيل الدخول</h1>
+      <form id="login-form" autocomplete="on">
+        <label>اسم المستخدم
+          <input id="username" name="username" autocomplete="username" required dir="ltr">
+        </label>
+        <label>كلمة المرور
+          <input id="password" name="password" type="password" autocomplete="current-password" required dir="ltr">
+        </label>
+        <button type="submit" class="btn primary" id="login-btn">دخول</button>
+        <p id="login-error" class="msg error" role="alert" hidden></p>
+      </form>
+      <div id="demo" class="demo" hidden>
+        <div class="muted">دخول سريع بحساب تجريبي</div>
+        <div id="demo-list" class="demo-list"></div>
+      </div>
+    </section>
+
+    <!-- Employee home -->
+    <section id="home-view" hidden>
+      <div class="card hero">
+        <div class="who">
+          <div>
+            <div class="hello">أهلاً، <span id="emp-name"></span></div>
+            <div class="muted">الرقم الوظيفي: <span id="emp-code" dir="ltr"></span></div>
+          </div>
+          <button id="logout" class="btn ghost small">خروج</button>
+        </div>
+        <div class="date" id="today"></div>
+        <div class="clock" id="clock">--:--</div>
+        <div id="status" class="status">—</div>
+
+        <div class="times">
+          <div><div class="muted">الحضور</div><div class="t" id="t-in">--:--</div></div>
+          <div><div class="muted">الانصراف</div><div class="t" id="t-out">--:--</div></div>
+          <div><div class="muted">مدة العمل اليوم</div><div class="t" id="t-dur" dir="ltr">0:00</div></div>
+        </div>
+
+        <button id="action" class="btn primary big" disabled>…</button>
+        <p id="action-msg" class="msg" role="status" hidden></p>
+      </div>
+
+      <div class="card">
+        <div class="row-head">
+          <h2>آخر السجلات</h2>
+          <button id="refresh" class="btn ghost small">تحديث</button>
+        </div>
+        <ul id="history" class="history"></ul>
+        <p id="history-empty" class="muted" hidden>لا توجد سجلات بعد.</p>
+      </div>
+    </section>
+    <!-- Admin dashboard -->
+    <section id="admin-view" hidden>
+      <div class="admin-head">
+        <div>
+          <h1>لوحة الحضور</h1>
+          <div class="muted">مرحبًا، <span id="admin-name"></span></div>
+        </div>
+        <div class="admin-tools">
+          <input type="date" id="admin-date" aria-label="اليوم">
+          <button id="admin-refresh" class="btn ghost small">تحديث</button>
+          <button id="admin-logout" class="btn ghost small">خروج</button>
+        </div>
+      </div>
+
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" id="tab-btn-attendance" aria-selected="true">الحضور</button>
+        <button role="tab" class="tab" id="tab-btn-employees" aria-selected="false">الموظفون</button>
+      </nav>
+
+      <div id="tab-employees" class="tab-panel" hidden>
+        <div class="card" id="emp-form-card" hidden>
+          <div class="row-head"><h2 id="emp-form-title">موظف جديد</h2></div>
+          <form id="emp-form" class="emp-form" autocomplete="off">
+            <label>الاسم الكامل
+              <input id="f-name" required minlength="2" maxlength="100">
+            </label>
+            <label>الرقم الوظيفي
+              <input id="f-code" required pattern="[A-Za-z0-9\-]{1,20}" maxlength="20" dir="ltr" placeholder="EMP-003">
+            </label>
+            <label>اسم المستخدم
+              <input id="f-username" required pattern="[a-z0-9._\-]{3,32}" maxlength="32" dir="ltr" autocomplete="off">
+              <span class="hint">أحرف إنجليزية صغيرة وأرقام و . _ - (3 إلى 32)</span>
+            </label>
+            <label>كلمة المرور
+              <input id="f-password" type="password" minlength="8" maxlength="72" dir="ltr" autocomplete="new-password">
+              <span class="hint" id="f-password-hint">8 أحرف على الأقل</span>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="btn primary" id="emp-save">حفظ</button>
+              <button type="button" class="btn ghost" id="emp-cancel">إلغاء</button>
+            </div>
+            <p id="emp-form-msg" class="msg error" role="alert" hidden></p>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row-head">
+            <h2>الموظفون</h2>
+            <button id="emp-add" class="btn primary small">إضافة موظف</button>
+          </div>
+          <div class="table-wrap">
+            <table class="board">
+              <thead><tr><th>الموظف</th><th>اسم المستخدم</th><th>الحالة</th><th></th></tr></thead>
+              <tbody id="emp-rows"></tbody>
+            </table>
+          </div>
+          <p id="emp-empty" class="muted" hidden>لا يوجد موظفون بعد.</p>
+          <p id="emp-msg" class="msg" role="status" hidden></p>
+        </div>
+      </div>
+
+      <div id="tab-attendance" class="tab-panel">
+      <div class="stats">
+        <div class="stat"><div class="n" id="st-total">0</div><div class="muted">إجمالي الموظفين</div></div>
+        <div class="stat"><div class="n ok" id="st-present">0</div><div class="muted">حضروا</div></div>
+        <div class="stat"><div class="n in" id="st-now">0</div><div class="muted">على رأس العمل الآن</div></div>
+        <div class="stat"><div class="n bad" id="st-absent">0</div><div class="muted">لم يحضروا</div></div>
+      </div>
+
+      <div class="card">
+        <div class="row-head"><h2 id="board-title">حضور اليوم</h2></div>
+        <div class="table-wrap">
+          <table class="board">
+            <thead><tr><th>الموظف</th><th>الحضور</th><th>الانصراف</th><th>مدة العمل</th><th>الحالة</th></tr></thead>
+            <tbody id="board"></tbody>
+          </table>
+        </div>
+        <p id="board-empty" class="muted" hidden>لا يوجد موظفون.</p>
+        <p id="admin-msg" class="msg" role="status" hidden></p>
+      </div>
+
+      <div class="card" id="emp-detail" hidden>
+        <div class="row-head">
+          <h2>سجل <span id="detail-name"></span> <span class="muted" id="detail-code" dir="ltr"></span></h2>
+          <button id="detail-close" class="btn ghost small">إغلاق</button>
+        </div>
+        <div class="table-wrap">
+          <table class="board">
+            <thead><tr><th>العملية</th><th>التاريخ</th><th>الوقت</th><th>عنوان IP</th></tr></thead>
+            <tbody id="detail-rows"></tbody>
+          </table>
+        </div>
+        <p id="detail-empty" class="muted" hidden>لا توجد سجلات.</p>
+      </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+  <script src="/admin.js"></script>
+  <script src="/employees.js"></script>
+</body>
+</html>

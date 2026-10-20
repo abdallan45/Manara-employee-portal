@@ -1,0 +1,11 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE TABLE departments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL UNIQUE);
+CREATE TABLE employees(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_code text NOT NULL UNIQUE,full_name text NOT NULL,department_id uuid REFERENCES departments(id),active boolean NOT NULL DEFAULT true,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid UNIQUE REFERENCES employees(id),username text NOT NULL UNIQUE,password_hash text NOT NULL,role text NOT NULL DEFAULT 'EMPLOYEE' CHECK(role IN ('EMPLOYEE','ADMIN')),active boolean NOT NULL DEFAULT true);
+CREATE TABLE flexible_policies(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL,required_minutes integer NOT NULL DEFAULT 480 CHECK(required_minutes BETWEEN 1 AND 1440));
+INSERT INTO flexible_policies(name) VALUES ('Default flexible 8 hours');
+CREATE TABLE employee_policies(employee_id uuid REFERENCES employees(id),policy_id uuid REFERENCES flexible_policies(id),valid_from date NOT NULL,valid_to date,PRIMARY KEY(employee_id,valid_from));
+CREATE TABLE attendance_events(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid NOT NULL REFERENCES employees(id),event_type text NOT NULL CHECK(event_type IN ('CHECK_IN','CHECK_OUT')),event_time timestamptz NOT NULL DEFAULT clock_timestamp(),source text NOT NULL DEFAULT 'WEB',ip_address inet NOT NULL,idempotency_key uuid NOT NULL,UNIQUE(employee_id,idempotency_key));
+CREATE INDEX attendance_lookup ON attendance_events(employee_id,event_time DESC);
+CREATE TABLE attendance_adjustments(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),employee_id uuid NOT NULL REFERENCES employees(id),requested_by uuid NOT NULL REFERENCES users(id),proposed_time timestamptz NOT NULL,proposed_type text NOT NULL CHECK(proposed_type IN ('CHECK_IN','CHECK_OUT')),reason text NOT NULL,status text NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','REJECTED')));
+CREATE TABLE audit_logs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),actor_user_id uuid REFERENCES users(id),action text NOT NULL,subject_id uuid,created_at timestamptz NOT NULL DEFAULT now());

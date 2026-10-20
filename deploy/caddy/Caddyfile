@@ -1,0 +1,22 @@
+# Internal HTTPS with Caddy's own local CA ("tls internal").
+# Install the root certificate (caddy data volume: /data/caddy/pki/authorities/local/root.crt)
+# on company devices once so browsers trust it. Caddy replaces any client-supplied
+# X-Forwarded-For with the real client address, so the app can trust Caddy's header.
+{
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	tls internal
+	encode zstd gzip
+	reverse_proxy app:3000
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
+
+# Plain HTTP only redirects to HTTPS.
+http://{$SITE_ADDRESS} {
+	redir https://{host}{uri} permanent
+}

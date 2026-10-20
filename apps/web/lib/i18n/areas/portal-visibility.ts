@@ -1,0 +1,118 @@
+// Strings for the portal-visibility work package. `ar` must have exactly the same shape as `en`.
+// Page names reuse t.nav.* (see portalLabel in lib/portal.ts).
+export const en = {
+  /** Route guard: a "My work" page HR turned off, opened directly. */
+  offTitle: 'This page is turned off',
+  offBody: 'Your organization has turned off “{page}” in the employee portal. If you need it, contact HR.',
+  goHome: 'Go to My day',
+  offLeaveBalances: 'Your leave balances are still shown on “{home}”.',
+  /** A request the API refused because HR turned that page or section off (403, details.reason PORTAL_DISABLED). */
+  offError: 'Your organization has turned this off in the employee portal. If you need it, contact HR.',
+
+  /** Settings -> Employee pages */
+  title: 'Employee pages',
+  description: 'Choose which pages and sections employees see under “My work”. Administration pages follow roles, not this setting.',
+  backToSettings: 'Settings',
+  showPage: 'Show “{page}”',
+  pageDescriptions: {
+    home: 'Check in and out, take breaks and see today at a glance.',
+    attendance: 'Day-by-day record of their own attendance.',
+    leave: 'Leave balances, leave requests and supporting documents.',
+    overtime: 'Extra time recorded and overtime requests.',
+    corrections: 'Ask to fix a missed or wrong check-in or check-out.',
+    notifications: 'Decisions on their requests and reminders.',
+  },
+  sections: {
+    'home.breaks': 'Start break button',
+    'home.summary': 'This week and month cards',
+    'home.activity': 'Recent activity',
+    'attendance.events': 'Check-in event log',
+    'leave.requests': 'Request leave and see requests',
+    'leave.documents': 'Attach supporting documents',
+    'overtime.recorded': 'Extra time recorded',
+    'overtime.requests': 'Request overtime and see requests',
+  },
+  leaveBalancesAlways: 'Leave balances (always shown)',
+  leaveBalancesHelp: 'If “{leave}” is hidden, employees see their balances on “{home}”.',
+  sectionsDisabledHint: 'Turn on the page to choose its sections',
+  lockedAttendance: 'Always shown: employees need it to record and see their own attendance.',
+  lockedNotifications: 'Always shown: employees must receive decisions on their requests.',
+
+  /** Live preview */
+  previewTitle: 'Preview: what employees see',
+  previewSidebar: 'Menu on a computer',
+  previewBottomBar: 'Menu bar on a phone',
+  previewHidden: 'Hidden: {list}',
+  previewCaption: 'Managers and HR also see their administration pages.',
+  listSeparator: ', ',
+
+  /** Save model */
+  unsavedOne: '1 unsaved change',
+  unsavedMany: '{n} unsaved changes',
+  unsavedRegion: 'Unsaved changes',
+  discard: 'Discard',
+  saveChanges: 'Save changes',
+  resetDefaults: 'Reset to defaults',
+  confirmTitleOne: 'Hide 1 item from all employees?',
+  confirmTitleMany: 'Hide {n} items from all employees?',
+  confirmBody: 'They disappear from menus; old links show a “turned off” message. Nothing is deleted.',
+  hideAndSave: 'Hide and save',
+  keepEditing: 'Keep editing',
+  savedToast: 'Saved. Employees see the change the next time they open or return to the app.',
+};
+
+export const ar: typeof en = {
+  offTitle: 'هذه الصفحة غير مفعّلة',
+  offBody: 'أوقفت مؤسستك صفحة «{page}» في بوابة الموظف. إذا كنت بحاجة إليها فتواصل مع الموارد البشرية.',
+  goHome: 'الذهاب إلى يومي',
+  offLeaveBalances: 'ما زالت أرصدة إجازاتك تظهر في «{home}».',
+  offError: 'أوقفت مؤسستك هذا في بوابة الموظف. إذا كنت بحاجة إليه فتواصل مع الموارد البشرية.',
+
+  title: 'صفحات الموظفين',
+  description: 'اختر الصفحات والأقسام التي تظهر للموظفين ضمن «عملي». صفحات الإدارة تتبع الأدوار وليس هذا الإعداد.',
+  backToSettings: 'الإعدادات',
+  showPage: 'إظهار «{page}»',
+  pageDescriptions: {
+    home: 'تسجيل الحضور والانصراف وأخذ الاستراحات ونظرة سريعة على اليوم.',
+    attendance: 'سجل الحضور اليومي الخاص بالموظف.',
+    leave: 'أرصدة الإجازات وطلبات الإجازة والمستندات الداعمة.',
+    overtime: 'الوقت الإضافي المسجَّل وطلبات العمل الإضافي.',
+    corrections: 'طلب تصحيح تسجيل حضور أو انصراف فائت أو خاطئ.',
+    notifications: 'قرارات طلباته والتذكيرات.',
+  },
+  sections: {
+    'home.breaks': 'زر بدء الاستراحة',
+    'home.summary': 'بطاقات الأسبوع والشهر',
+    'home.activity': 'آخر النشاطات',
+    'attendance.events': 'سجل الحركات',
+    'leave.requests': 'طلب إجازة وعرض الطلبات',
+    'leave.documents': 'إرفاق المستندات',
+    'overtime.recorded': 'الوقت الإضافي المسجَّل',
+    'overtime.requests': 'طلب عمل إضافي وعرض الطلبات',
+  },
+  leaveBalancesAlways: 'أرصدة الإجازات (تظهر دائماً)',
+  leaveBalancesHelp: 'إذا أُخفيت «{leave}» يرى الموظفون أرصدتهم في «{home}».',
+  sectionsDisabledHint: 'فعّل الصفحة لاختيار أقسامها',
+  lockedAttendance: 'تظهر دائماً: يحتاجها الموظف لتسجيل حضوره والاطلاع على سجله.',
+  lockedNotifications: 'تظهر دائماً: ليصل الموظفَ قرارُ طلباته.',
+
+  previewTitle: 'معاينة: ما يراه الموظف',
+  previewSidebar: 'القائمة على الحاسوب',
+  previewBottomBar: 'شريط القائمة على الهاتف',
+  previewHidden: 'مخفي: {list}',
+  previewCaption: 'يرى المديرون والموارد البشرية صفحات الإدارة أيضاً.',
+  listSeparator: '، ',
+
+  unsavedOne: 'تغيير واحد غير محفوظ',
+  unsavedMany: '{n} تغييرات غير محفوظة',
+  unsavedRegion: 'تغييرات غير محفوظة',
+  discard: 'تجاهل',
+  saveChanges: 'حفظ التغييرات',
+  resetDefaults: 'استعادة الإعدادات الافتراضية',
+  confirmTitleOne: 'إخفاء عنصر واحد عن جميع الموظفين؟',
+  confirmTitleMany: 'إخفاء {n} عناصر عن جميع الموظفين؟',
+  confirmBody: 'ستختفي من القوائم وستعرض الروابط القديمة رسالة «غير مفعّلة». لن يُحذف أي شيء.',
+  hideAndSave: 'إخفاء وحفظ',
+  keepEditing: 'متابعة التعديل',
+  savedToast: 'تم الحفظ. سيرى الموظفون التغيير عند فتح التطبيق أو العودة إليه.',
+};

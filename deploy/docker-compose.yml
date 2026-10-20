@@ -1,0 +1,101 @@
+# PostgreSQL + API/web + Caddy (HTTPS) + nightly backups. Two modes, chosen in deploy/.env:
+#   LAN server: CADDYFILE=Caddyfile (internal CA), LAN_BIND_IP = the server's LAN address
+#   public VPS: CADDYFILE=Caddyfile.public (Let's Encrypt), LAN_BIND_IP=0.0.0.0 (see docs/deployment-vps.md)
+# Usage (from the repo root):
+#   cp deploy/.env.example deploy/.env   # then edit secrets and the values above
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+name: workforce
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      # Password of the runtime role workforce_app, created by db-init/10-app-role.sh on first start.
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      # Runs only when the data volume is empty (first start). For an existing volume run it by hand:
+      # see docs/deployment.md, "Database roles".
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Over TCP: the temporary server that runs db-init/ listens only on the socket, so the
+      # app does not start until initialisation (including the workforce_app role) is done.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      retries: 20
+    networks: [internal]
+
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    restart: unless-stopped
+    environment:
+      # Runtime: the non-superuser role workforce_app (no DDL, no UPDATE/DELETE on audit_logs and attendance_events).
+      DATABASE_URL: postgresql://workforce_app:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      # Migrations only (prisma migrate deploy at container start): the schema owner.
+      MIGRATE_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      # Key for the audit hash chain (HMAC-SHA256). Keep a copy outside the server: see docs/deployment.md.
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:?set AUDIT_HMAC_KEY in deploy/.env}
+      AUDIT_HMAC_KEY_PREVIOUS: ${AUDIT_HMAC_KEY_PREVIOUS:-}
+      TZ_COMPANY: ${TZ_COMPANY:-Asia/Amman}
+      # Only Caddy (fixed address below) may set X-Forwarded-For; everything else is ignored.
+      TRUSTED_PROXIES: 172.28.0.10
+      DEMO_MODE: "false"
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [internal]
+    # No published ports: the app is reachable only through Caddy.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      # LAN: bind to the server's LAN address only (never 0.0.0.0 on a multi-homed host).
+      # Public VPS: 0.0.0.0, and port 80 must be reachable for the Let's Encrypt challenge.
+      - "${LAN_BIND_IP}:443:443"
+      - "${LAN_BIND_IP}:443:443/udp"
+      - "${LAN_BIND_IP}:80:80"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    networks:
+      internal:
+        ipv4_address: 172.28.0.10
+
+  backup:
+    # postgres:16-alpine plus the openssl CLI and the scripts (deploy/backup/Dockerfile).
+    build: { context: ./backup }
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      # When set, dumps are encrypted (openssl AES-256-CBC, PBKDF2). Keep the passphrase off the server too.
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
+      TZ: ${TZ_COMPANY:-Asia/Amman}
+    volumes:
+      - ${BACKUP_DIR:-../backups}:/backups
+    networks: [internal]
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  dbdata:
+  caddydata:

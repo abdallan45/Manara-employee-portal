@@ -1,0 +1,284 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Manara brand fonts - self-hosted (OFL) so the app works offline on the LAN. */
+@font-face { font-family: "Orbitron"; src: url("/fonts/orbitron-latin-wght-normal.woff2") format("woff2"); font-weight: 400 900; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Montserrat"; src: url("/fonts/montserrat-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+2000-206F, U+20AC, U+2122, U+2212; }
+@font-face { font-family: "Plex Arabic"; src: url("/fonts/ibm-plex-sans-arabic-arabic-400-normal.woff2") format("woff2"); font-weight: 400; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+@font-face { font-family: "Plex Arabic"; src: url("/fonts/ibm-plex-sans-arabic-arabic-600-normal.woff2") format("woff2"); font-weight: 500 600; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+@font-face { font-family: "Plex Arabic"; src: url("/fonts/ibm-plex-sans-arabic-arabic-700-normal.woff2") format("woff2"); font-weight: 700 900; font-display: swap; unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF; }
+
+@custom-variant dark (&:is(.dark *));
+
+/* Dark is the default theme; <html data-theme="light"> switches to the light one (lib/theme, theme-init.js).
+   shadcn variables mapped onto the Manara tokens. */
+:root {
+  color-scheme: dark;
+  --radius: 1rem;
+
+  --brand-bg: #0a0a0f;
+  --brand-pink: #ce1289;
+  --brand-red: #e82064;
+  --brand-purple: #6c65ad;
+  --brand-blue: #4373b9;
+  --brand-soft: #c0bdcd;
+  --brand-muted: #99a1af;
+  --brand-subtle: #8b93a3;
+  --brand-line: #21212c;
+  /* Text links and the keyboard focus outline: 6.9:1 on the page background (WCAG 1.4.3 / 1.4.11). */
+  --link: #ff5cae;
+  --focus: #ff5cae;
+  --brand-gradient: linear-gradient(90deg, #e82064 0%, #6c65ad 51.92%, #4373b9 100%);
+  --brand-cta: linear-gradient(90deg, #6c65ad 0%, #ce1289 60%, #e82064 100%);
+
+  --background: #0a0a0f;
+  --foreground: #f1f1f6;
+  --card: #12121a;
+  --card-foreground: #f1f1f6;
+  --popover: #14141d;
+  --popover-foreground: #f1f1f6;
+  --primary: #ce1289;
+  --primary-foreground: #ffffff;
+  --secondary: #1b1b26;
+  --secondary-foreground: #f1f1f6;
+  --muted: #17171f;
+  --muted-foreground: #99a1af;
+  --accent: #1d1d29;
+  --accent-foreground: #ffffff;
+  --destructive: #e82064;
+  --destructive-foreground: #ffffff;
+  --border: #21212c;
+  /* Input / checkbox / switch borders: 3.8:1 on the background, 3.5:1 on cards (WCAG 1.4.11). */
+  --input: #6b6b82;
+  --ring: #ce1289;
+
+  --chart-1: #ce1289;
+  --chart-2: #4373b9;
+  --chart-3: #6c65ad;
+  --chart-4: #fbbf24;
+  --chart-5: #4ade80;
+
+  --sidebar: #0e0e15;
+  --sidebar-foreground: #c0bdcd;
+  --sidebar-primary: #ce1289;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1a1a25;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1c1c26;
+  --sidebar-ring: #ce1289;
+
+  /* Status palette (DayStatus / AttendanceState) */
+  --status-working: #4ade80;
+  --status-break: #fbbf24;
+  --status-out: #8fb3ea;
+  --status-absent: #ff5c8a;
+  --status-missing: #fb923c;
+  --status-none: #8b93a3;
+  --status-leave: #a59ff0;
+  /* "Late" badge text */
+  --status-late: #ff7aa6;
+
+  /* Overlays and strong text: white on the dark theme, near-black on the light one (bg-tint/[0.04],
+     border-tint/15, text-tint…). Text on the brand gradient stays text-white in both themes. */
+  --tint: #ffffff;
+  --glow-1: rgba(206, 18, 137, 0.14);
+  --glow-2: rgba(108, 101, 173, 0.10);
+  --selection: rgba(206, 18, 137, 0.45);
+
+  /* Charts (components/charts): series validated for CVD separation and contrast on the card. */
+  --series-1: #e0409e;
+  --series-2: #5b8fd6;
+  --series-3: #c0841a;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-cursor: rgba(255, 255, 255, 0.2);
+  --chart-cursor-fill: rgba(255, 255, 255, 0.04);
+}
+
+/* Light theme. Text colours keep 4.5:1 on the page and on cards, borders and focus 3:1 (WCAG 1.4.3 / 1.4.11). */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --brand-bg: #f5f5f9;
+  --brand-soft: #5a5398;
+  --brand-muted: #596070;
+  --brand-subtle: #636b7a;
+  --brand-line: #e2e2ea;
+  --link: #b0106f;
+  --focus: #b0106f;
+
+  --background: #f5f5f9;
+  --foreground: #16141f;
+  --card: #ffffff;
+  --card-foreground: #16141f;
+  --popover: #ffffff;
+  --popover-foreground: #16141f;
+  --primary: #ce1289;
+  --primary-foreground: #ffffff;
+  --secondary: #ececf3;
+  --secondary-foreground: #16141f;
+  --muted: #efeff5;
+  --muted-foreground: #596070;
+  --accent: #ebebf3;
+  --accent-foreground: #16141f;
+  --destructive: #d0145a;
+  --destructive-foreground: #ffffff;
+  --border: #e2e2ea;
+  --input: #8b8ba0;
+  --ring: #ce1289;
+
+  --chart-4: #d99a06;
+  --chart-5: #16a34a;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #4a4959;
+  --sidebar-accent: #f0eef7;
+  --sidebar-accent-foreground: #16141f;
+  --sidebar-border: #e6e6ee;
+
+  --status-working: #147a3a;
+  --status-break: #9a5b00;
+  --status-out: #2c5ea8;
+  --status-absent: #c0104c;
+  --status-missing: #b93c0a;
+  --status-none: #596070;
+  --status-leave: #5a4fc0;
+  --status-late: #c0104c;
+
+  --tint: #16141f;
+  --glow-1: rgba(206, 18, 137, 0.07);
+  --glow-2: rgba(108, 101, 173, 0.07);
+  --selection: rgba(206, 18, 137, 0.22);
+
+  --series-1: #c8137f;
+  --series-2: #3567b5;
+  --series-3: #9a6200;
+  --chart-grid: rgba(22, 20, 31, 0.08);
+  --chart-cursor: rgba(22, 20, 31, 0.25);
+  --chart-cursor-fill: rgba(22, 20, 31, 0.05);
+}
+
+@theme inline {
+  --font-sans: "Montserrat", "Plex Arabic", -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Orbitron", "Plex Arabic", sans-serif;
+  --font-arabic: "Plex Arabic", "Montserrat", sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-brand-pink: var(--brand-pink);
+  --color-brand-red: var(--brand-red);
+  --color-brand-purple: var(--brand-purple);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-link: var(--link);
+  --color-tint: var(--tint);
+
+  --color-status-working: var(--status-working);
+  --color-status-break: var(--status-break);
+  --color-status-out: var(--status-out);
+  --color-status-absent: var(--status-absent);
+  --color-status-missing: var(--status-missing);
+  --color-status-none: var(--status-none);
+  --color-status-leave: var(--status-leave);
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: calc(var(--radius) - 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  /* One visible keyboard focus indicator everywhere (WCAG 2.4.7 / 2.4.11 / 2.4.13). Components must not
+     set outline:none on focus without a replacement. */
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  html {
+    background: var(--background);
+    /* Focused or anchored elements never land under the sticky header (h-16)… */
+    scroll-padding-top: 5rem;
+  }
+  /* …or under the mobile bottom navigation. */
+  @media (max-width: 47.999rem) {
+    html { scroll-padding-bottom: 6rem; }
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    min-height: 100dvh;
+    background:
+      radial-gradient(900px 500px at 85% -10%, var(--glow-1), transparent 60%),
+      radial-gradient(700px 500px at 0% 30%, var(--glow-2), transparent 60%),
+      var(--background);
+    background-attachment: fixed;
+  }
+  html[lang="ar"] body { font-family: var(--font-arabic); line-height: 1.7; }
+  h1, h2, h3 { letter-spacing: 0.01em; }
+  /* Letter-spacing breaks Arabic joining; never track Arabic text. */
+  :lang(ar), :lang(ar) * { letter-spacing: 0 !important; }
+  ::selection { background: var(--selection); }
+  input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.6; }
+  :root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+}
+
+@layer utilities {
+  .bg-brand-gradient { background: var(--brand-gradient); }
+  .bg-brand-cta { background: var(--brand-cta); }
+  .text-brand-gradient { background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tabular { font-variant-numeric: tabular-nums; }
+  .font-display { font-family: var(--font-display); }
+  /* Latin-only display face (numbers / Latin headings); Arabic text falls back to Plex Arabic via unicode-range. */
+  .num { font-family: var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  /* Text links: 6.9:1 on the dark background, 6.1:1 on the light one. */
+  .text-link { color: var(--link); }
+  /* Arabic glyphs need a little more size than Latin at the smallest step. */
+  html[lang="ar"] .text-xs { font-size: 13px; }
+}
+
+/* Reduced motion: no movement, scaling or pulsing; opacity fades stay so state changes remain visible. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    --tw-enter-scale: 1 !important;
+    --tw-exit-scale: 1 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-enter-rotate: 0 !important;
+    --tw-exit-rotate: 0 !important;
+    transition-property: opacity !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-ping, .animate-pulse, .animate-bounce, .animate-spin { animation: none !important; }
+}

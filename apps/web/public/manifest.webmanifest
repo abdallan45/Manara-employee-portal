@@ -1,0 +1,18 @@
+{
+  "name": "Employee Portal · بوابة الموظف",
+  "short_name": "Employee Portal",
+  "description": "Manara employee portal: attendance, leave, overtime and requests",
+  "lang": "ar",
+  "dir": "auto",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/.next
+apps/web/out
+dev
+legacy
+api
+backups
+**/.env
+**/.env.test
+apps/api/.seed-credentials.txt
+**/*.dump
+**/*.dump.enc
+**/*.anchor.txt
+deploy/.env

@@ -1,0 +1,97 @@
+.root {
+  position: fixed;
+  inset-inline-end: 1rem;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 5.25rem); /* above the mobile bottom nav */
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+@media (min-width: 768px) {
+  .root { bottom: 1.5rem; }
+}
+@media print {
+  .root { display: none; }
+}
+.root > * { pointer-events: auto; }
+
+.bubble {
+  max-width: min(17rem, calc(100vw - 8.75rem));
+  margin-bottom: 4.5rem; /* roughly level with her face */
+  border-radius: 1.1rem;
+  border-end-end-radius: 0.3rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  box-shadow: 0 10px 30px -12px rgb(160 60 200 / 0.55);
+  animation: pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: bottom right;
+}
+:global([dir='rtl']) .bubble { transform-origin: bottom left; }
+
+/* Nouria: ~122px tall full figure (viewBox 205x322). */
+.body {
+  width: 4.85rem;
+  height: 7.6rem;
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+  filter: drop-shadow(0 8px 14px rgb(120 60 190 / 0.35));
+  animation: idle 3.6s ease-in-out infinite;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.body:focus-visible { outline: 2px solid var(--color-primary, #ce1289); outline-offset: 4px; border-radius: 1rem; }
+.minimized .body { width: 3.1rem; height: 3.45rem; }
+
+.bounce { animation: bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), idle 3.6s ease-in-out 0.6s infinite; }
+.party { animation: party 0.9s ease-in-out 2, idle 3.6s ease-in-out 1.8s infinite; }
+
+/* SVG parts. Origins are in viewBox units (transform-box: view-box). */
+.figure { transform-box: view-box; transform-origin: 105px 320px; animation: breathe 3.6s ease-in-out infinite; }
+.head { transform-box: view-box; transform-origin: 90px 150px; animation: headIdle 5s ease-in-out infinite; }
+.hair { transform-box: view-box; transform-origin: 88px 24px; animation: hairIdle 5.5s ease-in-out infinite; }
+.peace { transform-box: view-box; transform-origin: 160px 150px; animation: peaceIdle 4s ease-in-out infinite; }
+.heart { transform-box: view-box; transform-origin: 176px 48px; animation: heartIdle 3s ease-in-out infinite; }
+.heartPop { transform-box: view-box; transform-origin: 176px 48px; animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.blink { transform-box: fill-box; transform-origin: center; animation: blink 4.6s infinite; }
+.mouth { transform-box: fill-box; transform-origin: center; }
+.zzz { animation: zzz 2.4s ease-in-out infinite; }
+.zzz2 { animation-delay: 1.2s; }
+.confetti { animation: confetti 1.4s ease-out forwards; }
+
+.talking .head { animation: headTalk 0.95s ease-in-out infinite; }
+.talking .hair { animation: hairTalk 1.15s ease-in-out infinite; }
+.talking .peace { animation: peaceTalk 0.42s ease-in-out infinite alternate; }
+.talking .heart { animation: heartTalk 0.75s ease-in-out infinite; }
+
+.controls { display: flex; flex-direction: column; gap: 0.25rem; }
+
+@keyframes pop { from { opacity: 0; transform: scale(0.6) translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes idle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes bounce { 0% { transform: translateY(0) scale(1); } 40% { transform: translateY(-14px) scale(1.05, 0.97); } 100% { transform: translateY(0) scale(1); } }
+@keyframes party { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-9deg) translateY(-8px); } 75% { transform: rotate(9deg) translateY(-8px); } }
+@keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.006, 1.014); } }
+@keyframes headIdle { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-1.6deg) translateY(-0.6px); } }
+@keyframes headTalk {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  25% { transform: rotate(1deg) translateY(-1.8px); }
+  50% { transform: rotate(2.6deg) translateY(0); }
+  75% { transform: rotate(0deg) translateY(-1.2px); }
+}
+@keyframes hairIdle { 0%, 100% { transform: skewX(0deg); } 33% { transform: skewX(-1.4deg); } 66% { transform: skewX(1deg); } }
+@keyframes hairTalk { 0%, 100% { transform: skewX(-2.4deg); } 50% { transform: skewX(2.4deg); } }
+@keyframes peaceIdle { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-4deg); } }
+@keyframes peaceTalk { from { transform: rotate(-9deg); } to { transform: rotate(7deg); } }
+@keyframes heartIdle { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-2.5px) scale(1.03); } }
+@keyframes heartTalk { 0%, 100% { transform: scale(1); } 30% { transform: scale(1.16) rotate(-4deg); } 60% { transform: scale(0.95) rotate(2deg); } }
+@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.08); } }
+@keyframes zzz { 0% { opacity: 0; transform: translateY(6px); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+@keyframes confetti { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-22px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .body, .bounce, .party, .bubble, .figure, .head, .hair, .peace, .heart, .heartPop, .blink, .zzz, .confetti,
+  .talking .head, .talking .hair, .talking .peace, .talking .heart { animation: none !important; }
+}
