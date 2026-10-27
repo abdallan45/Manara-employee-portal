@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EmployeeDto, Paginated, PERMISSIONS, SYSTEM_ROLES } from '@workforce/shared';
+import { EmployeeDto, Paginated, PERMISSIONS, SETTING_RANGES, SYSTEM_ROLES } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { Db, PrismaService } from '../../common/prisma.service';
-import { departmentScope, inScope } from '../../common/scope';
+import { employeeScopeWhere, inScope, teamScope, type Scope } from '../../common/scope';
 import { dateOnly } from '../../common/time';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/password';
@@ -14,12 +14,16 @@ import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto } from './em
 const EMPLOYEE_INCLUDE = {
   department: { select: { name: true, nameAr: true } },
   user: { include: { roles: { include: { role: { select: { key: true } } }, orderBy: { createdAt: 'asc' } } } },
+  supervisors: {
+    include: { supervisor: { select: { id: true, username: true, employee: { select: { fullName: true, fullNameAr: true } } } } },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.EmployeeInclude;
 
 type EmployeeRow = Prisma.EmployeeGetPayload<{ include: typeof EMPLOYEE_INCLUDE }>;
 
 /** Granting or revoking these roles requires ROLES_MANAGE. */
-const PRIVILEGED_ROLES = new Set<string>([SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.HR_ADMIN]);
+const PRIVILEGED_ROLES = new Set<string>([SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.HR_ADMIN, SYSTEM_ROLES.GENERAL_MANAGER]);
 /** The role whose grants are scoped by managedDepartmentIds. */
 const SCOPED_ROLE = SYSTEM_ROLES.DEPARTMENT_MANAGER;
 
@@ -39,6 +43,12 @@ export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
     departmentNameAr: e.department?.nameAr ?? null,
     managerId: e.managerId,
     hireDate: e.hireDate ? dateOnly.fromDb(e.hireDate) : null,
+    dailyRequiredMinutes: e.dailyRequiredMinutes,
+    includedBreakMinutes: e.includedBreakMinutes,
+    supervisors: e.supervisors.map((s) => ({
+      userId: s.supervisor.id, username: s.supervisor.username,
+      name: s.supervisor.employee?.fullName ?? null, nameAr: s.supervisor.employee?.fullNameAr ?? null,
+    })),
     isActive: e.isActive,
     createdAt: e.createdAt.toISOString(),
     user: e.user
@@ -54,6 +64,17 @@ export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
 }
 
 const invalid = (field: string, message: string) => AppError.badRequest('VALIDATION_FAILED', message, [{ field, messages: [message] }]);
+
+/** Personal hours use the same limits as the company defaults in settings; null clears the override. */
+function assertHours(dto: { dailyRequiredMinutes?: number | null; includedBreakMinutes?: number | null }): void {
+  const fields = { dailyRequiredMinutes: 'attendance.dailyRequiredMinutes', includedBreakMinutes: 'attendance.includedBreakMinutes' } as const;
+  for (const field of ['dailyRequiredMinutes', 'includedBreakMinutes'] as const) {
+    const v = dto[field];
+    if (v === undefined || v === null) continue;
+    const { min, max } = SETTING_RANGES[fields[field]];
+    if (!Number.isInteger(v) || v < min || v > max) throw invalid(field, `${field} must be a whole number between ${min} and ${max}`);
+  }
+}
 
 const charRange = (from: number, to: number) => String.fromCharCode(...Array.from({ length: to - from + 1 }, (_, i) => from + i));
 /** Tashkeel (harakat, tanween, shadda, sukun, dagger alef, Quranic marks) and tatweel: deleted when folding. */
@@ -87,14 +108,17 @@ export class EmployeesService {
     private readonly sessions: SessionService,
   ) {}
 
-  private readScope(user: AuthUser) {
-    return departmentScope(user, PERMISSIONS.EMPLOYEES_MANAGE, PERMISSIONS.EMPLOYEES_READ);
+  /** HR / company-wide viewers see everyone; other readers (managers) their departments and supervised employees. */
+  private readScope(user: AuthUser): Scope | null {
+    if (user.permissions.has(PERMISSIONS.EMPLOYEES_MANAGE) || user.permissions.has(PERMISSIONS.ATTENDANCE_READ_ALL)) return null;
+    if (user.permissions.has(PERMISSIONS.EMPLOYEES_READ)) return teamScope(user);
+    throw AppError.forbidden();
   }
 
   async list(user: AuthUser, q: EmployeeListQueryDto): Promise<Paginated<EmployeeDto>> {
     const scope = this.readScope(user);
     const and: Prisma.EmployeeWhereInput[] = [{ deletedAt: null }];
-    if (scope !== null) and.push({ departmentId: { in: scope } });
+    if (scope !== null) and.push(employeeScopeWhere(scope));
     if (q.departmentId) and.push({ departmentId: q.departmentId });
     if (q.status === 'active') and.push({ isActive: true });
     if (q.status === 'inactive') and.push({ isActive: false });
@@ -144,7 +168,7 @@ export class EmployeesService {
     const scope = this.readScope(user);
     const row = await this.prisma.employee.findFirst({ where: { id, deletedAt: null }, include: EMPLOYEE_INCLUDE });
     // Out-of-scope records are reported as missing so their existence is not disclosed.
-    if (!row || !inScope(scope, row.departmentId)) throw AppError.notFound('Employee not found');
+    if (!row || !inScope(scope, row)) throw AppError.notFound('Employee not found');
     return toEmployeeDto(row);
   }
 
@@ -156,6 +180,8 @@ export class EmployeesService {
     await this.assertDepartment(this.prisma, dto.departmentId);
     await this.assertManager(this.prisma, dto.managerId, null);
     const grants = await this.resolveGrants(this.prisma, roleKeys, dto.managedDepartmentIds ?? []);
+    const supervisorIds = await this.resolveSupervisors(this.prisma, dto.supervisorUserIds ?? [], null);
+    assertHours(dto);
     const passwordHash = await hashPassword(dto.password);
 
     try {
@@ -171,6 +197,9 @@ export class EmployeesService {
             departmentId: dto.departmentId ?? null,
             managerId: dto.managerId ?? null,
             hireDate: dto.hireDate ? dateOnly.toDb(dto.hireDate) : null,
+            dailyRequiredMinutes: dto.dailyRequiredMinutes ?? null,
+            includedBreakMinutes: dto.includedBreakMinutes ?? null,
+            supervisors: { create: supervisorIds.map((supervisorUserId) => ({ supervisorUserId })) },
             user: {
               create: {
                 username: dto.username,
@@ -225,6 +254,8 @@ export class EmployeesService {
     if (dto.username !== undefined && dto.username !== current.user?.username) await this.assertUnique(undefined, dto.username);
     if (dto.departmentId !== undefined) await this.assertDepartment(this.prisma, dto.departmentId);
     if (dto.managerId !== undefined) await this.assertManager(this.prisma, dto.managerId, id);
+    assertHours(dto);
+    const supervisorIds = dto.supervisorUserIds === undefined ? null : await this.resolveSupervisors(this.prisma, dto.supervisorUserIds, current.user?.id ?? null);
     if (!current.user && (dto.username !== undefined || dto.password !== undefined || rolesChanging) && !(dto.username && dto.password)) {
       throw invalid('username', 'This employee has no login yet; provide both username and password to create one');
     }
@@ -245,8 +276,14 @@ export class EmployeesService {
             departmentId: dto.departmentId,
             managerId: dto.managerId,
             hireDate: dto.hireDate === undefined ? undefined : dto.hireDate === null ? null : dateOnly.toDb(dto.hireDate),
+            dailyRequiredMinutes: dto.dailyRequiredMinutes,
+            includedBreakMinutes: dto.includedBreakMinutes,
           },
         });
+        if (supervisorIds) {
+          await tx.employeeSupervisor.deleteMany({ where: { employeeId: id, supervisorUserId: { notIn: supervisorIds } } });
+          await tx.employeeSupervisor.createMany({ data: supervisorIds.map((supervisorUserId) => ({ supervisorUserId, employeeId: id })), skipDuplicates: true });
+        }
 
         let userId = current.user?.id ?? null;
         if (!userId && dto.username && passwordHash) {
@@ -350,6 +387,16 @@ export class EmployeesService {
     if (managerId === selfId) throw invalid('managerId', 'An employee cannot be their own manager');
     const mgr = await db.employee.findFirst({ where: { id: managerId, deletedAt: null }, select: { id: true } });
     if (!mgr) throw invalid('managerId', 'Manager does not exist');
+  }
+
+  /** Supervisors must be active users, never the employee's own login. */
+  private async resolveSupervisors(db: Db, userIds: string[], ownUserId: string | null): Promise<string[]> {
+    const ids = [...new Set(userIds)];
+    if (ownUserId && ids.includes(ownUserId)) throw invalid('supervisorUserIds', 'An employee cannot supervise themselves');
+    if (!ids.length) return [];
+    const found = await db.user.count({ where: { id: { in: ids }, isActive: true, deletedAt: null } });
+    if (found !== ids.length) throw invalid('supervisorUserIds', 'One or more supervisors are not active users');
+    return ids;
   }
 
   private async resolveGrants(db: Db, roleKeys: string[], managedDepartmentIds: string[]): Promise<RoleGrant[]> {

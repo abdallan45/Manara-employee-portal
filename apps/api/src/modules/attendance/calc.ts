@@ -180,7 +180,7 @@ export function computeDayMetrics(input: DayCalcInput): DayMetrics {
   const presenceMinutes = floorMin(presenceMs);
   const breakMinutes = floorMin(breakMs);
   const paidBreakMinutes = floorMin(paidMs);
-  // Break time within the schedule's included allowance stays part of the working day.
+  // Break time within the included allowance stays part of the working day.
   const allowanceMs = Math.max(0, schedule.includedBreakMinutes ?? 0) * MINUTE;
   const netWorkMinutes = floorMin(presenceMs - Math.max(0, deductMs - allowanceMs));
 
@@ -263,6 +263,8 @@ export function computeDayMetrics(input: DayCalcInput): DayMetrics {
     excessBreakMinutes: floorMin(excessMs),
     netWorkMinutes,
     requiredMinutes,
+    includedBreakMinutes: floorMin(allowanceMs),
+    breakAllowanceLeftMinutes: floorMin(allowanceMs - deductMs),
     missingMinutes,
     extraMinutes,
     lateMinutes,

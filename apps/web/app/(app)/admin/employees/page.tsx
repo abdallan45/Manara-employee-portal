@@ -120,7 +120,7 @@ function Employees() {
     return s ? `${pathname}?${s}` : pathname;
   })();
   const profileHref = (e: EmployeeDto) => employeeHref(e.id, undefined, listUrl);
-  const roleLabel = (key: string) => t.employeeHub.roles[key] ?? key;
+  const roleLabel = (key: string) => t.employeeHub.roles[key] ?? t.approvalChains.roleNames[key] ?? key;
 
   const nameOf = (e: EmployeeDto) => (locale === 'ar' && e.fullNameAr) || e.fullName;
 

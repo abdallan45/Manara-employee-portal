@@ -342,6 +342,21 @@ describe('schedule resolution', () => {
     await prisma.holiday.create({ data: { date: new Date('2026-10-15'), name: 'Founders Day' } });
     expect(await resolver.resolve(employee.id, dept.id, date)).toMatchObject({ isHoliday: true, holidayName: 'Founders Day' });
   });
+
+  it('daily hours: employee override > settings; schedule day hours are ignored', async () => {
+    const resolver = app.get(ScheduleResolver);
+    const { employee, user } = await makeEmployee({ name: 'Rami Hillcrest' });
+    const date = '2026-10-15';
+    expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60, startMinute: 480, endMinute: 1020 });
+    expect((await resolver.resolve(employee.id, null, '2026-10-16')).rule).toMatchObject({ isWorkday: false, requiredMinutes: 0 });
+
+    await settings.update('attendance.dailyRequiredMinutes', 480, user.id, '10.0.0.1');
+    await settings.update('attendance.includedBreakMinutes', 0, user.id, '10.0.0.1');
+    expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 480, includedBreakMinutes: 0 });
+
+    await prisma.employee.update({ where: { id: employee.id }, data: { dailyRequiredMinutes: 360, includedBreakMinutes: 30 } });
+    expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 360, includedBreakMinutes: 30 });
+  });
 });
 
 describe('dashboard', () => {
@@ -355,7 +370,7 @@ describe('dashboard', () => {
     const b = await makeEmployee({ name: 'Basil Quarry', departmentId: ops.id });
     await makeEmployee({ name: 'Celine Marsh', departmentId: sales.id });
     const d = await makeEmployee({ name: 'Dorian Vale', departmentId: sales.id });
-    await makeSession(a.employee.id, date, at(8), at(16, 30), 'CLOSED');
+    await makeSession(a.employee.id, date, at(8), at(17, 30), 'CLOSED');
     await makeSession(b.employee.id, date, at(8, 30), at(16), 'CLOSED');
     await makeSession(d.employee.id, date, at(7, 55), null, 'MISSING_CHECKOUT');
     const admin = await makeEmployee({ name: 'Hana Admin', role: 'SUPER_ADMIN' });
@@ -364,12 +379,12 @@ describe('dashboard', () => {
     const summary = await dashboard.summary(authUser(admin.user, null, { role: 'SUPER_ADMIN' }), date);
     expect(summary.kpis).toEqual({
       totalEmployees: 4, currentlyWorking: 0, onBreak: 0, checkedOut: 2, absent: 1, onLeave: 0, late: 1, missingCheckouts: 1,
-      totalWorkMinutes: 510 + 450, extraMinutes: 30, attendanceRate: 0.75,
+      totalWorkMinutes: 570 + 450, extraMinutes: 30, attendanceRate: 0.75,
     });
     expect(summary.trend).toHaveLength(14);
-    expect(summary.trend[13]).toEqual({ date, present: 3, scheduled: 4, late: 1, workMinutes: 960 });
+    expect(summary.trend[13]).toEqual({ date, present: 3, scheduled: 4, late: 1, workMinutes: 1020 });
     expect(summary.departments).toEqual([
-      { departmentId: ops.id, name: 'Ops', nameAr: null, present: 2, scheduled: 2, workMinutes: 960 },
+      { departmentId: ops.id, name: 'Ops', nameAr: null, present: 2, scheduled: 2, workMinutes: 1020 },
       { departmentId: sales.id, name: 'Sales', nameAr: null, present: 1, scheduled: 2, workMinutes: 0 },
     ]);
 

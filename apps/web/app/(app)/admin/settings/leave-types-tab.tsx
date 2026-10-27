@@ -4,8 +4,9 @@ import { useEffect, useState, type ComponentProps, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { ChevronDown, Loader2, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { STANDARD_DAY_MINUTES, type CreateLeaveTypeInput, type LeaveAccrual, type LeaveTypeDto, type LeaveUnit } from '@workforce/shared';
+import { MANAGER_STEP, STANDARD_DAY_MINUTES, type ApprovalStep, type CreateLeaveTypeInput, type LeaveAccrual, type LeaveTypeDto, type LeaveUnit, type RoleDto } from '@workforce/shared';
 
+import { ChainEditor, useChainSummary } from '@/components/approval-chain';
 import { DataTable, type Column } from '@/components/data-table';
 import { CheckRow, FormField } from '@/components/form-field';
 import { useLeaveAmount } from '@/components/request-bits';
@@ -26,7 +27,6 @@ import { cn } from '@/lib/utils';
 const CODE_RE = /^[A-Z0-9_]{1,40}$/;
 const UNITS: LeaveUnit[] = ['DAY', 'HALF_DAY', 'HOUR'];
 const ACCRUALS: LeaveAccrual[] = ['YEARLY', 'MONTHLY', 'NONE'];
-const LEVEL_KEYS = { 1: 'one', 2: 'two', 3: 'three' } as const;
 const MAX_DAYS = 366;
 
 /** Amounts are typed in days (8 h) for day-based types and in hours for hourly ones; the API stores minutes. */
@@ -72,7 +72,8 @@ export function LeaveTypesTab() {
   const [editing, setEditing] = useState<LeaveTypeDto | 'new' | null>(null);
   const [formDirty, setFormDirty] = useState(false);
   const nameOf = (x: LeaveTypeDto) => localized(locale, x.name, x.nameAr);
-  const levelLabel = (n: number) => l.approvalLevelOptions[LEVEL_KEYS[n as 1 | 2 | 3] ?? 'one'];
+  const roles = useApi<RoleDto[]>('/roles');
+  const chainSummary = useChainSummary(roles.data);
   const entitlement = (x: LeaveTypeDto) =>
     x.tracksBalance ? (
       <div className="grid">
@@ -114,7 +115,7 @@ export function LeaveTypesTab() {
     },
     { id: 'code', header: t.common.code, cell: (x) => <span className="tabular text-muted-foreground" dir="ltr">{x.code}</span> },
     { id: 'entitlement', header: l.entitlementCol, cell: entitlement },
-    { id: 'approval', header: l.approvalLevels, cell: (x) => <span className="text-muted-foreground">{levelLabel(x.approvalLevels)}</span> },
+    { id: 'approval', header: t.approvalChains.leaveTypes.chainColumn, cell: (x) => <span className="text-muted-foreground text-xs">{chainSummary(x.approvalSteps)}</span> },
     { id: 'flags', header: l.flags, cell: flags },
     { id: 'active', header: t.common.status, cell: (x) => <ActiveBadge active={x.isActive} /> },
     {
@@ -176,6 +177,7 @@ export function LeaveTypesTab() {
             <LeaveTypeForm
               key={editing === 'new' ? 'new' : editing.id}
               existing={editing === 'new' ? null : editing}
+              roles={roles.data ?? []}
               onDirtyChange={setFormDirty}
               onCancel={close}
               onSaved={() => {
@@ -190,8 +192,9 @@ export function LeaveTypesTab() {
   );
 }
 
-function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
+function LeaveTypeForm({ existing, roles, onCancel, onSaved, onDirtyChange }: {
   existing: LeaveTypeDto | null;
+  roles: RoleDto[];
   onCancel: () => void;
   onSaved: () => void;
   onDirtyChange: (dirty: boolean) => void;
@@ -207,7 +210,7 @@ function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
     accrual: existing?.accrual ?? ('YEARLY' as LeaveAccrual),
     entitlement: toAmount(existing?.annualEntitlementMinutes ?? 0, existing?.unit ?? 'DAY'),
     carryover: toAmount(existing?.carryoverMaxMinutes ?? 0, existing?.unit ?? 'DAY'),
-    approvalLevels: String(existing?.approvalLevels ?? 1),
+    approvalSteps: existing?.approvalSteps ?? [MANAGER_STEP],
     isPaid: existing?.isPaid ?? true,
     requiresAttachment: existing?.requiresAttachment ?? false,
     isSensitive: existing?.isSensitive ?? false,
@@ -222,7 +225,7 @@ function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
   const [accrual, setAccrual] = useState<LeaveAccrual>(initial.accrual);
   const [entitlement, setEntitlement] = useState(initial.entitlement);
   const [carryover, setCarryover] = useState(initial.carryover);
-  const [approvalLevels, setApprovalLevels] = useState(initial.approvalLevels);
+  const [approvalSteps, setApprovalSteps] = useState<ApprovalStep[]>(initial.approvalSteps);
   const [isPaid, setIsPaid] = useState(initial.isPaid);
   const [requiresAttachment, setRequiresAttachment] = useState(initial.requiresAttachment);
   const [isSensitive, setIsSensitive] = useState(initial.isSensitive);
@@ -239,7 +242,7 @@ function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
 
   const dirty =
     code !== initial.code || name !== initial.name || nameAr !== initial.nameAr || unit !== initial.unit || accrual !== initial.accrual ||
-    entitlement !== initial.entitlement || carryover !== initial.carryover || approvalLevels !== initial.approvalLevels ||
+    entitlement !== initial.entitlement || carryover !== initial.carryover || approvalSteps.join() !== initial.approvalSteps.join() ||
     isPaid !== initial.isPaid || requiresAttachment !== initial.requiresAttachment || isSensitive !== initial.isSensitive ||
     isRemoteWork !== initial.isRemoteWork || isActive !== initial.isActive;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
@@ -276,7 +279,7 @@ function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
 
     const shared = {
       name: name.trim(), isPaid, unit, accrual, annualEntitlementMinutes: entitlementMinutes, carryoverMaxMinutes: carryoverMinutes,
-      requiresAttachment, approvalLevels: Number(approvalLevels), isSensitive, isRemoteWork, isActive,
+      requiresAttachment, approvalSteps, isSensitive, isRemoteWork, isActive,
     };
     setSaving(true);
     try {
@@ -426,22 +429,10 @@ function LeaveTypeForm({ existing, onCancel, onSaved, onDirtyChange }: {
       </Section>
 
       <Section title={w.leaveTypes.approvalRules}>
-        <FormField id="lt-levels" label={l.approvalLevels} error={errors.approvalLevels}>
-          {({ id, describedBy, invalid }) => (
-            <Select value={approvalLevels} onValueChange={setApprovalLevels}>
-              <SelectTrigger id={id} className="w-full" aria-describedby={describedBy} aria-invalid={invalid}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {([1, 2, 3] as const).map((n) => (
-                  <SelectItem key={n} value={String(n)}>
-                    {l.approvalLevelOptions[LEVEL_KEYS[n]]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </FormField>
+        <ChainEditor id="lt-chain" value={approvalSteps} onChange={setApprovalSteps} roles={roles} error={errors.approvalSteps} />
+        {isSensitive && approvalSteps.includes(MANAGER_STEP) && (
+          <p className="text-muted-foreground text-xs">{t.approvalChains.leaveTypes.sensitiveSkipsManager}</p>
+        )}
         <div className="grid gap-2">
           <CheckRow id="lt-attachment" checked={requiresAttachment} onCheckedChange={setRequiresAttachment} label={l.requiresAttachment} />
           <CheckRow id="lt-sensitive" checked={isSensitive} onCheckedChange={setIsSensitive} label={l.isSensitive} description={l.isSensitiveHint} />

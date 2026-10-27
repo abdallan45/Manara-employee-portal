@@ -16,7 +16,7 @@ afterAll(async () => {
 let people: Awaited<ReturnType<typeof seedPeople>>;
 beforeEach(async () => {
   await resetDb();
-  people = await seedPeople(app);
+  people = await seedPeople(app, { eightHourDay: false });
 });
 
 const SUN_THU = [0, 1, 2, 3, 4];
@@ -56,10 +56,10 @@ describe('schedule assignments', () => {
     ]));
     expect((await people.http.mgr.get('/api/v1/schedules/assignments')).status).toBe(403);
 
-    // The schedule drives the daily figures: 8 h required on a Sun–Thu day of the early schedule.
+    // The schedule sets the times; the daily hours come from the settings (9 h including the break).
     const day = pastWorkday(3);
     const days = await people.http.hr.get(`/api/v1/attendance/employees/${people.users.emp.employeeId}/days?from=${day}&to=${day}`);
-    expect(days.body[0].scheduled).toMatchObject({ type: 'FIXED', start: '07:00', end: '15:00', requiredMinutes: 480 });
+    expect(days.body[0].scheduled).toMatchObject({ type: 'FIXED', start: '07:00', end: '15:00', requiredMinutes: 540 });
   });
 
   it('ending an assignment keeps the past; only assignments that have not started can be deleted', async () => {

@@ -11,6 +11,8 @@ export interface AuthUser {
   permissions: Set<string>;
   /** Department ids where the user holds a department-scoped role (team scope). */
   managedDepartmentIds: string[];
+  /** Employees assigned to the user as supervisor / project manager (team scope, MANAGER approval step). */
+  supervisedEmployeeIds: string[];
   /** Client IP as resolved by Express (honours TRUSTED_PROXIES only). */
   ip: string;
 }

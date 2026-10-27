@@ -11,6 +11,7 @@ import { PasswordChangeGuard } from './guards/password-change.guard';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { HealthController } from './health.controller';
 import { RolesController } from './roles.controller';
+import { RolesService } from './roles.service';
 import { SessionService } from './session.service';
 
 /**
@@ -27,6 +28,7 @@ import { SessionService } from './session.service';
   controllers: [AuthController, RolesController, HealthController],
   providers: [
     AuthService,
+    RolesService,
     SessionService,
     LoginAttemptLimiter,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

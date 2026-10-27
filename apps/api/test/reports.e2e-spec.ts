@@ -11,7 +11,7 @@ async function grantToRole(roleKey: string, permissionKey: string) {
   ]);
   await prisma.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
 }
-import { DAY, pastWorkday, seedPeople, seedRequestCatalog, sessionWithEvents } from './request-fixtures';
+import { pastWorkday, seedPeople, seedRequestCatalog, sessionWithEvents } from './request-fixtures';
 
 let app: INestApplication;
 beforeAll(async () => {
@@ -27,8 +27,11 @@ let people: Awaited<ReturnType<typeof seedPeople>>;
 beforeEach(async () => {
   await resetDb();
   catalog = await seedRequestCatalog();
-  people = await seedPeople(app);
+  people = await seedPeople(app, { eightHourDay: false });
 });
+
+/** Default daily requirement (attendance.dailyRequiredMinutes): 9 h including the break. */
+const FULL_DAY = 540;
 
 interface Row { employee: { id: string; employeeCode: string }; totals: Record<string, number | null>; days?: unknown[] }
 const rowOf = (body: { rows: Row[] }, employeeId: string) => body.rows.find((r) => r.employee.id === employeeId)!;
@@ -37,7 +40,7 @@ describe('attendance report', () => {
   it('totals presence, absence, extra time and approved overtime per employee', async () => {
     const day = pastWorkday(2);
     const { emp, emp2, opsEmp } = people.users;
-    await sessionWithEvents(emp.employeeId, day, 8 * 60, 18 * 60, 'CLOSED'); // 10 h → 120 extra minutes
+    await sessionWithEvents(emp.employeeId, day, 8 * 60, 19 * 60, 'CLOSED'); // 11 h against 9 h → 120 extra minutes
     const ot = await people.http.emp.post('/api/v1/overtime/requests').send({ workDate: day, minutes: 90, reason: 'Release' });
     await people.http.mgr.post(`/api/v1/approvals/overtime/${ot.body.id}/approve`).send({});
 
@@ -45,10 +48,10 @@ describe('attendance report', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ from: day, to: day });
     expect(rowOf(res.body, emp.employeeId).totals).toMatchObject({
-      scheduledDays: 1, presentDays: 1, absentDays: 0, netWorkMinutes: 600, requiredMinutes: DAY, extraMinutes: 120,
+      scheduledDays: 1, presentDays: 1, absentDays: 0, netWorkMinutes: 660, requiredMinutes: FULL_DAY, extraMinutes: 120,
       overtimeApprovedMinutes: 90, overtimeCompensatedMinutes: 113, overtimePendingMinutes: 0, attendanceRate: 1,
     });
-    expect(rowOf(res.body, emp2.employeeId).totals).toMatchObject({ presentDays: 0, absentDays: 1, missingMinutes: DAY, attendanceRate: 0 });
+    expect(rowOf(res.body, emp2.employeeId).totals).toMatchObject({ presentDays: 0, absentDays: 1, missingMinutes: FULL_DAY, attendanceRate: 0 });
     expect(rowOf(res.body, opsEmp.employeeId)).toBeDefined();
     expect(res.body.totals.presentDays).toBe(1);
     expect(res.body.totals.absentDays).toBe(res.body.rows.length - 1);

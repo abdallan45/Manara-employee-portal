@@ -2,6 +2,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { addDays, dateOnly, localDate, localDateTime, weekdayOf } from '../src/common/time';
+import { SettingsService } from '../src/modules/settings/settings.service';
 import { as, createDepartment, createUser, webLogin } from './core-fixtures';
 import { prisma } from './helpers';
 
@@ -13,7 +14,7 @@ export async function seedRequestCatalog() {
     prisma.leaveType.create({ data: { code: 'SICK', name: 'Sick leave', unit: 'DAY', annualEntitlementMinutes: 14 * DAY, accrual: 'YEARLY', isSensitive: true } }),
     prisma.leaveType.create({ data: { code: 'UNPAID', name: 'Unpaid leave', isPaid: false, unit: 'DAY', accrual: 'NONE' } }),
     prisma.leaveType.create({ data: { code: 'HOURLY', name: 'Hourly leave', unit: 'HOUR', annualEntitlementMinutes: 24 * 60, accrual: 'YEARLY' } }),
-    prisma.leaveType.create({ data: { code: 'STUDY', name: 'Study leave', unit: 'DAY', annualEntitlementMinutes: 5 * DAY, accrual: 'YEARLY', approvalLevels: 2 } }),
+    prisma.leaveType.create({ data: { code: 'STUDY', name: 'Study leave', unit: 'DAY', annualEntitlementMinutes: 5 * DAY, accrual: 'YEARLY', approvalSteps: ['MANAGER', 'HR_ADMIN'] } }),
   ]);
   const policy = await prisma.overtimePolicy.create({
     data: {
@@ -25,7 +26,16 @@ export async function seedRequestCatalog() {
 }
 
 /** Engineering (manager + two employees) and Operations (manager + one employee), plus HR and an admin. */
-export async function seedPeople(app: INestApplication) {
+export async function seedPeople(app: INestApplication, opts: { eightHourDay?: boolean } = {}) {
+  // Most request suites were written for an 8-hour day without a break allowance (DAY = 480); the
+  // 9-hour company default is covered by the attendance tests (and by suites passing eightHourDay: false).
+  if (opts.eightHourDay !== false) {
+    await prisma.systemSetting.createMany({
+      data: [{ key: 'attendance.dailyRequiredMinutes', value: DAY }, { key: 'attendance.includedBreakMinutes', value: 0 }],
+      skipDuplicates: true,
+    });
+  }
+  app.get(SettingsService).invalidate();
   const eng = await createDepartment('ENG', 'Engineering');
   const ops = await createDepartment('OPS', 'Operations');
   const [hr, admin, mgr, opsMgr, emp, emp2, opsEmp] = await Promise.all([

@@ -4,6 +4,24 @@
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 export type RequestKind = 'LEAVE' | 'OVERTIME' | 'CORRECTION';
 
+/**
+ * One step of an approval chain: MANAGER_STEP (the employee's supervisors / project managers and the managers
+ * of their department) or a role key (e.g. HR_ADMIN, GENERAL_MANAGER). Steps run in order; each needs a
+ * different person, never the requester.
+ */
+export type ApprovalStep = string;
+export const MANAGER_STEP = 'MANAGER';
+export const MAX_APPROVAL_STEPS = 4;
+/**
+ * Added by the system, never configured: FALLBACK_STEP is appended when no configured step had anyone to
+ * decide it (company-wide approvers, e.g. HR, decide instead); DIRECT_STEP marks a decision taken outside
+ * the chain (direct overtime approval, direct attendance correction by HR).
+ */
+export const FALLBACK_STEP = 'ANY_APPROVER';
+export const DIRECT_STEP = 'DIRECT';
+/** Step keys that can never be role keys. */
+export const RESERVED_STEP_KEYS: readonly string[] = [MANAGER_STEP, FALLBACK_STEP, DIRECT_STEP];
+
 /** Minutes in one leave day when a balance is shown in days (balances themselves are kept in minutes). */
 export const STANDARD_DAY_MINUTES = 480;
 
@@ -32,7 +50,8 @@ export interface LeaveTypeDto {
   annualEntitlementMinutes: number;
   carryoverMaxMinutes: number;
   requiresAttachment: boolean;
-  approvalLevels: number;
+  /** Approval chain, in order (at least one step). */
+  approvalSteps: ApprovalStep[];
   isSensitive: boolean;
   /** Approved requests are remote working days, not leave (schedule applies; check-in away from the office accepted). */
   isRemoteWork: boolean;
@@ -53,7 +72,8 @@ export interface CreateLeaveTypeInput {
   annualEntitlementMinutes?: number;
   carryoverMaxMinutes?: number;
   requiresAttachment?: boolean;
-  approvalLevels?: number;
+  /** 1..MAX_APPROVAL_STEPS steps; default [MANAGER_STEP]. */
+  approvalSteps?: ApprovalStep[];
   isSensitive?: boolean;
   /** Requires accrual NONE and no entitlement: remote work never uses a leave balance. */
   isRemoteWork?: boolean;
@@ -106,6 +126,8 @@ export interface LeaveLedgerEntryDto {
 
 export interface LeaveApprovalStepDto {
   level: number;
+  /** The chain step this decision was taken for. */
+  step: ApprovalStep;
   decision: RequestStatus;
   comment: string | null;
   approver: { id: string; username: string; name: string | null; nameAr: string | null };
@@ -138,14 +160,17 @@ export interface LeaveRequestDto {
   /** null when confidential. */
   reason: string | null;
   status: RequestStatus;
+  /** 1-based index into approvalSteps of the step waiting for a decision. */
   currentLevel: number;
-  /** null when confidential. */
-  approvalLevels: number | null;
+  /** The chain this request follows (fixed when it was submitted); null when confidential. */
+  approvalSteps: ApprovalStep[] | null;
   rejectionReason: string | null;
   createdAt: string;
   decidedAt: string | null;
   cancelledAt: string | null;
   approvals: LeaveApprovalStepDto[];
+  /** 1-based levels passed over because nobody could decide them (no manager / no holder of the role). */
+  skippedLevels: number[];
   /** Supporting documents; empty when confidential for this viewer. */
   documents: LeaveDocumentDto[];
 }
@@ -276,7 +301,11 @@ export interface OvertimeRequestDto {
   estimate: OvertimeEstimateDto;
   createdAt: string;
   decidedAt: string | null;
+  currentLevel: number;
+  approvalSteps: ApprovalStep[];
   approvals: LeaveApprovalStepDto[];
+  /** 1-based levels passed over because nobody could decide them (no manager / no holder of the role). */
+  skippedLevels: number[];
 }
 
 export interface CreateOvertimeRequestInput {
@@ -309,6 +338,11 @@ export interface CorrectionRequestDto {
   direct: boolean;
   appliedEventId: string | null;
   createdAt: string;
+  currentLevel: number;
+  approvalSteps: ApprovalStep[];
+  approvals: LeaveApprovalStepDto[];
+  /** 1-based levels passed over because nobody could decide them (no manager / no holder of the role). */
+  skippedLevels: number[];
 }
 
 export interface CreateCorrectionInput {
@@ -352,6 +386,10 @@ export interface ApprovalItemDto {
   decidedAt: string | null;
   /** True when the viewer may approve or reject this item now. */
   canAct: boolean;
+  /** Pending items: the step waiting for a decision, its 1-based position and the chain length. */
+  currentStep: ApprovalStep | null;
+  currentLevel: number;
+  totalLevels: number;
   /** Exactly one of these is set, matching `kind`. */
   leave: LeaveRequestDto | null;
   overtime: OvertimeRequestDto | null;
@@ -363,7 +401,7 @@ export interface ApprovalSummaryDto {
 }
 
 export interface DecisionInput {
-  /** Required for rejections (the reason shown to the requester). */
+  /** Note shown to the requester: optional when approving, required when rejecting. */
   comment?: string;
 }
 

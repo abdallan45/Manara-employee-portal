@@ -8,6 +8,7 @@ import {
   type CreateLeaveRequestInput, type HalfDay, type LeaveBalanceDto, type LeaveMode, type LeavePreviewDto, type LeaveRequestDto, type LeaveTypeDto,
 } from '@workforce/shared';
 
+import { ChainProgress, useChainWaitingFor } from '@/components/approval-chain';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type Column } from '@/components/data-table';
 import { TimeRange } from '@/components/duration';
@@ -15,7 +16,7 @@ import { FormField } from '@/components/form-field';
 import { DocumentPicker, LeaveDocuments, uploadLeaveDocument } from '@/components/leave-documents';
 import { PageHeader } from '@/components/page-header';
 import {
-  BalanceCard, ChoiceGroup, DecisionList, Field, RejectedReason, RequestStatusBadge, useDayCount, useLeaveAmount, useWaitingFor,
+  BalanceCard, ChoiceGroup, Field, RejectedReason, RequestStatusBadge, useDayCount, useLeaveAmount,
 } from '@/components/request-bits';
 import { EmptyState, ErrorState, FormErrorSummary, LoadingRows, focusFirstError } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -97,7 +98,7 @@ function MyLeave() {
   const [hrNote, setHrNote] = useState(false);
   const [fetched, setFetched] = useState<LeaveRequestDto | null>(null);
   const amount = useLeaveAmount('long');
-  const waitingFor = useWaitingFor();
+  const waitingFor = useChainWaitingFor();
 
   const types = useApi<LeaveTypeDto[]>('/leave/types');
   const balances = useApi<LeaveBalanceDto[]>('/leave/me/balances', { year });
@@ -165,7 +166,7 @@ function MyLeave() {
     r.startDate === r.endDate ? formatWorkDate(r.startDate, locale) : `${formatWorkDate(r.startDate, locale)} – ${formatWorkDate(r.endDate, locale)}`;
   const modeLabel = (r: LeaveRequestDto) => (r.mode === 'HOURLY' ? <TimeRange start={r.startAt} end={r.endAt} /> : t.leave.modes[r.mode]);
   const waiting = (r: LeaveRequestDto) =>
-    waitingFor({ status: r.status, currentLevel: r.currentLevel, approvalLevels: r.approvalLevels ?? undefined, isSensitive: r.leaveType?.isSensitive });
+    waitingFor(r);
 
   const columns: Column<LeaveRequestDto>[] = [
     { id: 'dates', header: t.common.date, cell: (r) => <span className="tabular whitespace-nowrap">{dates(r)}</span> },
@@ -365,8 +366,14 @@ function MyLeave() {
                 />
               )}
               <div className="space-y-2">
-                <p className="text-sm font-semibold">{t.requests.history}</p>
-                <DecisionList steps={viewing.approvals} levels={viewing.approvalLevels ?? undefined} />
+                <p className="text-sm font-semibold">{t.approvalChains.progress.title}</p>
+                <ChainProgress
+                  steps={viewing.approvalSteps}
+                  currentLevel={viewing.currentLevel}
+                  status={viewing.status}
+                  approvals={viewing.approvals}
+                  skippedLevels={viewing.skippedLevels}
+                />
               </div>
               <DialogFooter>
                 {canCancel(viewing) && (

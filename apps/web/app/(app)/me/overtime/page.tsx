@@ -15,7 +15,8 @@ import { Minutes } from '@/components/duration';
 import { FormField } from '@/components/form-field';
 import { HelpTip } from '@/components/help-tip';
 import { PageHeader } from '@/components/page-header';
-import { ChoiceGroup, Interpolate, RejectedReason, RequestStatusBadge, useWaitingFor } from '@/components/request-bits';
+import { ChainDisclosure, useChainWaitingFor } from '@/components/approval-chain';
+import { ChoiceGroup, Interpolate, RejectedReason, RequestStatusBadge } from '@/components/request-bits';
 import { EmptyState, ErrorState, FormErrorSummary, LoadingRows, focusFirstError } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -113,7 +114,7 @@ function MyOvertime() {
   const [url, setUrl] = useUrlState({ new: '', date: '' });
   const [draft, setDraft] = useState<{ value: OvertimeDraft; base: string } | null>(null);
   const [cancelling, setCancelling] = useState<OvertimeRequestDto | null>(null);
-  const waitingFor = useWaitingFor();
+  const waitingFor = useChainWaitingFor();
 
   const policy = useApi<OvertimePolicyDto>('/overtime/policy');
   const requests = useApi<OvertimeRequestDto[]>('/overtime/me/requests');
@@ -176,8 +177,9 @@ function MyOvertime() {
     {
       id: 'status', header: t.common.status, cell: (r) => (
         <div className="space-y-1">
-          <RequestStatusBadge status={r.status} waitingFor={waitingFor({ status: r.status })} />
+          <RequestStatusBadge status={r.status} waitingFor={waitingFor(r)} />
           <RejectedReason reason={rejection(r)} className="max-w-56" />
+          <ChainDisclosure request={r} className="max-w-64" />
         </div>
       ),
     },
@@ -315,11 +317,12 @@ function MyOvertime() {
                     <p className="font-medium">
                       <span className="tabular">{formatWorkDate(r.workDate, locale)}</span> · <Minutes value={r.minutes} />
                     </p>
-                    <RequestStatusBadge status={r.status} waitingFor={waitingFor({ status: r.status })} className="items-end text-end" />
+                    <RequestStatusBadge status={r.status} waitingFor={waitingFor(r)} className="items-end text-end" />
                   </div>
                   <p className="text-muted-foreground text-xs">{timing(r)} · {compensation(r.compensation)}</p>
                   <p className="text-muted-foreground text-xs">{estimate(r)}</p>
                   <RejectedReason reason={rejection(r)} />
+                  <ChainDisclosure request={r} />
                 </div>
               )}
               mobileActions={(r) =>

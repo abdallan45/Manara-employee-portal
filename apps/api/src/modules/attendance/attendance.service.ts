@@ -339,7 +339,7 @@ export class AttendanceService {
     });
     if (!employee) throw AppError.notFound('Employee not found');
     // Out of scope answers like a missing employee, so ids outside the scope cannot be probed.
-    if (employee.id !== user.employeeId && !inScope(attendanceScope(user), employee.departmentId)) {
+    if (employee.id !== user.employeeId && !inScope(attendanceScope(user), employee)) {
       throw AppError.notFound('Employee not found');
     }
     return employee;

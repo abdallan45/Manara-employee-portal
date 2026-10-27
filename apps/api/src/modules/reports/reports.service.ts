@@ -5,7 +5,7 @@ import {
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
-import { departmentScope, inScope } from '../../common/scope';
+import { employeeScopeWhere, inScope, readScope } from '../../common/scope';
 import { addDays, dateOnly, localDate, startOfLocalDay } from '../../common/time';
 import { AttendanceMetricsService } from '../attendance/attendance-metrics.service';
 import { resolveRange } from '../attendance/date-range';
@@ -76,14 +76,17 @@ export class ReportsService {
     const now = new Date();
     const today = localDate(now);
     const { from, to } = resolveRange(q.from, q.to, MAX_REPORT_DAYS, now);
-    const scope = departmentScope(user, PERMISSIONS.REPORTS_READ_ALL, PERMISSIONS.REPORTS_READ_TEAM);
-    if (q.departmentId && !inScope(scope, q.departmentId)) throw AppError.forbidden('FORBIDDEN', 'This department is outside your scope');
+    const scope = readScope(user, PERMISSIONS.REPORTS_READ_ALL, PERMISSIONS.REPORTS_READ_TEAM);
+    // A department filter is allowed for a managed department, or to narrow supervised employees by department.
+    if (q.departmentId && scope !== null && !scope.departmentIds.includes(q.departmentId) && !scope.employeeIds.length) {
+      throw AppError.forbidden('FORBIDDEN', 'This department is outside your scope');
+    }
 
     const employees = await this.prisma.employee.findMany({
       // One employee is loaded first and checked against the scope below (404, like a missing employee).
       where: q.employeeId
         ? { deletedAt: null, id: q.employeeId }
-        : { deletedAt: null, isActive: true, ...(q.departmentId ? { departmentId: q.departmentId } : scope === null ? {} : { departmentId: { in: scope } }) },
+        : { deletedAt: null, isActive: true, ...(q.departmentId ? { departmentId: q.departmentId } : {}), AND: [employeeScopeWhere(scope)] },
       select: {
         id: true, employeeCode: true, fullName: true, fullNameAr: true, departmentId: true, locationId: true,
         department: { select: { name: true, nameAr: true } },
@@ -93,7 +96,7 @@ export class ReportsService {
     if (q.employeeId) {
       const e = employees[0];
       if (!e) throw AppError.notFound('Employee not found');
-      if (!inScope(scope, e.departmentId)) throw AppError.notFound('Employee not found');
+      if (!inScope(scope, e)) throw AppError.notFound('Employee not found');
     }
 
     const ids = employees.map((e) => e.id);

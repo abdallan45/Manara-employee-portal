@@ -2,12 +2,12 @@
 
 import { Fragment, type ReactNode } from 'react';
 import { Ban, CircleCheck, CircleX, Clock, Lock, type LucideIcon } from 'lucide-react';
-import { STANDARD_DAY_MINUTES, type LeaveApprovalStepDto, type LeaveBalanceDto, type LeaveUnit, type RequestStatus } from '@workforce/shared';
+import { STANDARD_DAY_MINUTES, type LeaveBalanceDto, type LeaveUnit, type RequestStatus } from '@workforce/shared';
 
 import { HelpTip } from '@/components/help-tip';
 import { FieldError } from '@/components/states';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatDateTime, formatMinutes, formatNumber, localized } from '@/lib/format';
+import { formatMinutes, formatNumber, localized } from '@/lib/format';
 import { fmt, type Locale } from '@/lib/i18n/dictionaries';
 import { useI18n } from '@/lib/i18n/context';
 import { cn } from '@/lib/utils';
@@ -41,7 +41,7 @@ const STATUS_ICON: Record<RequestStatus, LucideIcon> = { PENDING: Clock, APPROVE
 
 /**
  * Request status pill (Pending clock, Approved check, Rejected x, Cancelled ban). `waitingFor` adds a
- * sub-label under a pending badge, e.g. "Waiting for HR · step 2 of 2" (see useWaitingFor).
+ * sub-label under a pending badge, e.g. "Waiting for HR · step 2 of 2" (see useChainWaitingFor).
  */
 export function RequestStatusBadge({ status, waitingFor, className }: { status: RequestStatus; waitingFor?: string; className?: string }) {
   const { t } = useI18n();
@@ -66,22 +66,6 @@ export function RequestStatusBadge({ status, waitingFor, className }: { status: 
       <span className="text-muted-foreground text-xs">{waitingFor}</span>
     </span>
   );
-}
-
-/**
- * Who a pending request waits for: level 1 is the manager, level 2 is HR (leave with two approval levels).
- * A sensitive leave type never has a manager step: every level is HR (`isSensitive`).
- */
-export function useWaitingFor() {
-  const { t } = useI18n();
-  const s = t.employeeSelfService.requests;
-  return (r: { status: RequestStatus; currentLevel?: number; approvalLevels?: number; isSensitive?: boolean }): string | undefined => {
-    if (r.status !== 'PENDING') return undefined;
-    const levels = r.approvalLevels ?? 1;
-    const level = Math.min(r.currentLevel ?? 1, levels);
-    const who = level >= 2 || r.isSensitive ? s.waitingHr : s.waitingManager;
-    return levels > 1 ? fmt(s.waitingStep, { who, level, levels }) : who;
-  };
 }
 
 const pluralRulesCache = new Map<Locale, Intl.PluralRules>();
@@ -126,39 +110,6 @@ export function useLeaveAmount(style: 'short' | 'long' = 'short') {
     if (style === 'long') return formatCount(days, t.employeeSelfService.dayCount, locale);
     return fmt(t.leave.daysValue, { n: formatNumber(days, locale, { maximumFractionDigits: 1 }) });
   };
-}
-
-/** Approval / rejection steps, oldest first. */
-export function DecisionList({ steps, levels }: { steps: LeaveApprovalStepDto[]; levels?: number }) {
-  const { t, locale } = useI18n();
-  if (steps.length === 0) return <p className="text-muted-foreground text-sm">{t.requests.noHistory}</p>;
-  return (
-    <ol className="space-y-3">
-      {steps.map((s, i) => {
-        const Icon = s.decision === 'APPROVED' ? CircleCheck : s.decision === 'REJECTED' ? CircleX : Clock;
-        const color = s.decision === 'APPROVED' ? 'var(--status-working)' : s.decision === 'REJECTED' ? 'var(--status-absent)' : 'var(--status-break)';
-        return (
-          <li key={`${s.createdAt}-${i}`} className="flex gap-3">
-            <Icon className="mt-0.5 size-4 shrink-0" style={{ color }} aria-hidden />
-            <div className="min-w-0 space-y-0.5 text-sm">
-              <p className="font-medium">
-                {t.requests.status[s.decision]} · <bdi>{localized(locale, s.approver.name, s.approver.nameAr) || s.approver.username}</bdi>
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {levels && levels > 1 ? `${fmt(t.requests.level, { level: s.level, levels })} · ` : ''}
-                {formatDateTime(s.createdAt, locale)}
-              </p>
-              {s.comment && (
-                <p className="text-muted-foreground rounded-lg bg-tint/[0.03] px-2.5 py-1.5 whitespace-pre-wrap" dir="auto">
-                  {s.comment}
-                </p>
-              )}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
-  );
 }
 
 /** Small label/value pair used in request cards and the approval sheet. */

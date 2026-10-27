@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  normalizePortalVisibility, PortalKey, RangedSettingKey, SETTING_DEFAULTS, SETTING_RANGES, SettingDto, SettingKey,
+  MANAGER_STEP, MAX_APPROVAL_STEPS, normalizePortalVisibility, PortalKey, RangedSettingKey, SETTING_DEFAULTS, SETTING_RANGES, SettingDto, SettingKey,
   validatePortalVisibility,
 } from '@workforce/shared';
 import { IANAZone } from 'luxon';
@@ -21,6 +21,12 @@ const oneOf = (...allowed: string[]): Validator => (v) =>
 /** Integer validator from the shared SETTING_RANGES, so the web form and the API agree on the limits. */
 const ranged = (key: RangedSettingKey): Validator => int(SETTING_RANGES[key].min, SETTING_RANGES[key].max);
 
+/** Approval chain shape: 1..MAX_APPROVAL_STEPS step keys ("MANAGER" or a role key). Role existence is checked by the caller. */
+const approvalSteps: Validator = (v) =>
+  Array.isArray(v) && v.length >= 1 && v.length <= MAX_APPROVAL_STEPS && v.every((s) => typeof s === 'string' && /^[A-Z][A-Z0-9_]{1,39}$/.test(s))
+    ? null
+    : `must be a list of 1 to ${MAX_APPROVAL_STEPS} steps ("MANAGER" or role keys)`;
+
 const PORTAL_KEY: SettingKey = 'portal.visibility';
 
 const VALIDATORS: Record<SettingKey, Validator> = {
@@ -29,6 +35,10 @@ const VALIDATORS: Record<SettingKey, Validator> = {
   'attendance.locationEnforcement': oneOf('ENFORCE', 'FLAG'),
   'attendance.maxLocationAccuracyMeters': ranged('attendance.maxLocationAccuracyMeters'),
   'attendance.maxOpenSessionHours': ranged('attendance.maxOpenSessionHours'),
+  'attendance.dailyRequiredMinutes': ranged('attendance.dailyRequiredMinutes'),
+  'attendance.includedBreakMinutes': ranged('attendance.includedBreakMinutes'),
+  'approvals.overtimeSteps': approvalSteps,
+  'approvals.correctionSteps': approvalSteps,
   'auth.maxFailedLogins': ranged('auth.maxFailedLogins'),
   'auth.lockoutMinutes': ranged('auth.lockoutMinutes'),
   'auth.sessionHours': ranged('auth.sessionHours'),
@@ -77,6 +87,7 @@ export class SettingsService {
     if (!isSettingKey(key)) throw AppError.notFound(`Unknown setting "${key}"`);
     const problem = VALIDATORS[key](rawValue);
     if (problem) throw AppError.badRequest('VALIDATION_FAILED', `${key} ${problem}`, [{ field: 'value', messages: [`${key} ${problem}`] }]);
+    if (key === 'approvals.overtimeSteps' || key === 'approvals.correctionSteps') await this.assertRolesExist(key, rawValue as string[]);
     // Portal visibility is stored as a full object so the audit before/after reads as a complete picture.
     const isPortal = key === PORTAL_KEY;
     const value = isPortal ? normalizePortalVisibility(rawValue) : rawValue;
@@ -95,6 +106,17 @@ export class SettingsService {
     });
     this.invalidate();
     return { key, value: saved.value, updatedAt: saved.updatedAt.toISOString() };
+  }
+
+  /** Every step of an approval chain other than MANAGER must name an existing role. */
+  private async assertRolesExist(key: string, steps: string[]): Promise<void> {
+    const roleKeys = [...new Set(steps.filter((s) => s !== MANAGER_STEP))];
+    const known = roleKeys.length ? await this.prisma.role.findMany({ where: { key: { in: roleKeys } }, select: { key: true } }) : [];
+    const unknown = roleKeys.filter((k) => !known.some((r) => r.key === k));
+    if (unknown.length) {
+      const message = `${key} names unknown role(s): ${unknown.join(', ')}`;
+      throw AppError.badRequest('VALIDATION_FAILED', message, [{ field: 'value', messages: [message] }]);
+    }
   }
 
   invalidate(): void {

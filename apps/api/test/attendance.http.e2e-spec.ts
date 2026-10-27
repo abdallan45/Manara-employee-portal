@@ -158,6 +158,32 @@ describe('attendance over HTTP', () => {
     expect((await http().get('/api/v1/notifications/unread-count').set(auth)).body).toEqual({ count: 0 });
   });
 
+  it('daily hours: 9 h incl. 1 h break by default, employee override, company setting', async () => {
+    const admin = await makeEmployee({ name: 'Hala Root', role: 'SUPER_ADMIN', passwordHash });
+    const res = await http().post('/api/v1/auth/login').send({ username: admin.user.username, password: PASSWORD, client: 'MOBILE' });
+    const auth = { Authorization: `Bearer ${res.body.accessToken}` };
+    // Every day a workday, so "today" is scheduled whatever the date; the schedule's own hours are ignored.
+    await prisma.workSchedule.create({
+      data: {
+        name: 'Every day', type: 'FIXED', isDefault: true, weeklyRequiredMinutes: 0, includedBreakMinutes: 0,
+        days: { create: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, isWorkday: true, startMinute: 0, endMinute: 1439, requiredMinutes: 300 })) },
+      },
+    });
+    const today = async () => (await http().get('/api/v1/attendance/me/status').set(auth)).body.today;
+
+    expect(await today()).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60, breakAllowanceLeftMinutes: 60, scheduled: { requiredMinutes: 540 } });
+
+    expect((await http().patch('/api/v1/settings/attendance.dailyRequiredMinutes').set(auth).send({ value: 20 })).status).toBe(400);
+    expect((await http().patch('/api/v1/settings/attendance.dailyRequiredMinutes').set(auth).send({ value: 600 })).status).toBe(200);
+    expect((await http().patch('/api/v1/settings/attendance.includedBreakMinutes').set(auth).send({ value: 45 })).status).toBe(200);
+    expect(await today()).toMatchObject({ requiredMinutes: 600, includedBreakMinutes: 45, breakAllowanceLeftMinutes: 45 });
+
+    await prisma.employee.update({ where: { id: admin.employee.id }, data: { dailyRequiredMinutes: 480, includedBreakMinutes: 30 } });
+    expect(await today()).toMatchObject({ requiredMinutes: 480, includedBreakMinutes: 30, breakAllowanceLeftMinutes: 30 });
+    await prisma.employee.update({ where: { id: admin.employee.id }, data: { dailyRequiredMinutes: 420, includedBreakMinutes: null } });
+    expect(await today()).toMatchObject({ requiredMinutes: 420, includedBreakMinutes: 45 });
+  });
+
   it('manages offices, schedules and holidays with validation and audit', async () => {
     const admin = await makeEmployee({ name: 'Hala Root', role: 'SUPER_ADMIN', passwordHash });
     const res = await http().post('/api/v1/auth/login').send({ username: admin.user.username, password: PASSWORD, client: 'MOBILE' });

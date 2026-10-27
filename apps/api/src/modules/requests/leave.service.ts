@@ -14,13 +14,13 @@ import { leaveDates } from '../attendance/leave-days';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ScheduleResolver, type EmployeeRef } from '../schedules/schedule-resolver';
-import { afterLeaveApproval, approverFor, canDecideLeave, coversDepartment, initialLeaveLevel, levelAudience, type Approver } from './approval-routing';
+import { approverFor, canDecideStep, coversEmployee, parseSteps, skippedLevels, stepAt, type Approver, type RoutedRequest } from './approval-routing';
 import {
   accrualDue, accrualMode, carryoverMinutes, computeLeaveSpan, monthlyAccruals, monthsDue, summarizeLedger, tracksBalance, yearlyAccrual, type LeaveSpan,
 } from './leave-math';
 import {
-  ApproverDirectory, approvalStepsByRequest, assertMayDecide, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending, requireEmployee,
-  toEmployeeRef, TX_OPTIONS, type EmployeeRefRow,
+  ApproverDirectory, approvalStepsByRequest, assertMayDecide, assertStepAllowed, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending,
+  priorApprovers, requireEmployee, toEmployeeRef, TX_OPTIONS, type EmployeeRefRow,
 } from './request-common';
 
 const P = PERMISSIONS;
@@ -39,7 +39,7 @@ export const leaveTypeToDto = (t: LeaveType): LeaveTypeDto => ({
   id: t.id, code: t.code, name: t.name, nameAr: t.nameAr, isPaid: t.isPaid,
   unit: t.unit as LeaveUnit, accrual: t.accrual as LeaveTypeDto['accrual'],
   annualEntitlementMinutes: t.annualEntitlementMinutes, carryoverMaxMinutes: t.carryoverMaxMinutes,
-  requiresAttachment: t.requiresAttachment, approvalLevels: t.approvalLevels, isSensitive: t.isSensitive,
+  requiresAttachment: t.requiresAttachment, approvalSteps: parseSteps(t.approvalSteps), isSensitive: t.isSensitive,
   isRemoteWork: t.isRemoteWork, tracksBalance: tracksBalance(t), isActive: t.isActive,
 });
 
@@ -74,12 +74,6 @@ export function toLedgerEntry(
     note: reason, period, requestId: r.requestId, actor: username ? { username } : null,
   };
 }
-
-/**
- * approvalLevels of a confidential request. The shared LeaveRequestDto still types it as `number`;
- * null is what is sent (the web treats a missing level count as "no levels to show").
- */
-const MASKED_LEVELS = null as unknown as number;
 
 /**
  * HR may not change their own leave balance or entitlement (that is self-dealing, like approving
@@ -274,7 +268,7 @@ export class LeaveService {
     const employee = await this.prisma.employee.findFirst({ where: { id: employeeId, deletedAt: null }, select: { departmentId: true } });
     if (!employee) throw AppError.notFound('Employee not found');
     // Out of scope answers like a missing employee, so ids outside the scope cannot be probed.
-    if (!approver || !coversDepartment(approver, employee.departmentId)) throw AppError.notFound('Employee not found');
+    if (!approver || !coversEmployee(approver, { employeeId, departmentId: employee.departmentId })) throw AppError.notFound('Employee not found');
     return { ...viewer, companyWide: approver.companyWide };
   }
 
@@ -381,32 +375,27 @@ export class LeaveService {
           throw AppError.conflict('LEAVE_BALANCE_INSUFFICIENT', 'Not enough leave balance for this request', { available: balance.available, requested: span.minutes });
         }
       }
-      const managers = type.isSensitive ? [] : await this.directory.team(P.LEAVE_APPROVE, employee.departmentId, employee.id, tx);
-      const currentLevel = initialLeaveLevel(type.approvalLevels, managers.length > 0);
+      const chain = await this.directory.start(P.LEAVE_APPROVE, parseSteps(type.approvalSteps), employee, { skipManager: type.isSensitive }, tx);
       const row = await tx.leaveRequest.create({
         data: {
           employeeId: employee.id, leaveTypeId: type.id, mode: input.mode, startAt: span.startAt, endAt: span.endAt,
-          minutes: span.minutes, reason: input.reason.trim(), currentLevel,
+          minutes: span.minutes, reason: input.reason.trim(), currentLevel: chain.level, approvalSteps: chain.steps,
         },
       });
       await this.audit.record(tx, {
         actorUserId: user.userId, action: 'LEAVE_REQUEST_CREATE', entityType: 'LeaveRequest', entityId: row.id, ipAddress: user.ip,
         after: {
           employeeId: employee.id, leaveType: type.code, mode: input.mode, startAt: span.startAt.toISOString(), endAt: span.endAt.toISOString(),
-          minutes: span.minutes, currentLevel, approvalLevels: type.approvalLevels,
+          minutes: span.minutes, currentLevel: chain.level, approvalSteps: chain.steps,
         },
       });
-      await this.notifyApprovers(tx, row.id, employee, type, currentLevel, managers);
+      await this.notifyApprovers(tx, row.id, employee, type, chain.level, chain.recipients);
       return row.id;
     }, TX_OPTIONS);
     return this.get(id, { userId: user.userId, employeeId: employee.id, companyWide: false });
   }
 
-  private async notifyApprovers(tx: Prisma.TransactionClient, requestId: string, employee: EmployeeRefRow, type: LeaveType, level: number, managers?: string[]) {
-    let recipients = levelAudience(level, type.isSensitive) === 'TEAM'
-      ? managers ?? (await this.directory.team(P.LEAVE_APPROVE, employee.departmentId, employee.id, tx))
-      : [];
-    if (!recipients.length) recipients = await this.directory.companyWide(P.LEAVE_APPROVE, employee.id, tx);
+  private async notifyApprovers(tx: Prisma.TransactionClient, requestId: string, employee: EmployeeRefRow, type: LeaveType, level: number, recipients: string[]) {
     await this.notifications.notifyMany(recipients, {
       type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL,
       title: 'Leave request waiting for approval',
@@ -414,7 +403,7 @@ export class LeaveService {
       data: {
         type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, kind: 'LEAVE', requestId, level,
         employeeName: employee.fullName, employeeNameAr: employee.fullNameAr, employeeCode: employee.employeeCode,
-        // Sensitive types only ever reach HR, but keep the type out of the payload anyway.
+        // Sensitive types never reach managers, but keep the type out of the payload anyway.
         leaveType: type.isSensitive ? null : type.code,
       },
       dedupeKey: `leave-pending:${requestId}:${level}`,
@@ -459,7 +448,11 @@ export class LeaveService {
     return this.get(id, { userId: user.userId, employeeId: user.employeeId, companyWide: hr?.companyWide ?? false });
   }
 
-  /** Approve or reject at the request's current level. */
+  /**
+   * Approve or reject the step the request waits at. Approving a step that is not the last moves the
+   * request to the next step somebody can decide (steps nobody can decide are passed over); approving
+   * the last one approves the request and debits the balance. A rejection at any step ends it.
+   */
   async decide(user: AuthUser, id: string, decision: 'APPROVED' | 'REJECTED', comment: string | undefined): Promise<LeaveRequestDto> {
     const approver = approverFor(user, P.LEAVE_APPROVE);
     const note = comment?.trim() || null;
@@ -470,21 +463,22 @@ export class LeaveService {
     await this.prisma.$transaction(async (tx) => {
       const now = await lockEmployee(tx, existing.employeeId);
       const req = await tx.leaveRequest.findUniqueOrThrow({ where: { id }, include: LEAVE_INCLUDE });
-      assertMayDecide(approver, req.employeeId, req.employee.departmentId, true);
+      const routed = this.routed(req);
+      assertMayDecide(approver, routed);
       if (req.status !== 'PENDING') throw notPending(req.status);
-      if (!canDecideLeave(approver!, this.routed(req))) {
-        throw AppError.forbidden('APPROVAL_NOT_ALLOWED', 'This request is waiting for a different approver', { currentLevel: req.currentLevel });
-      }
+      assertStepAllowed(approver, routed, req.currentLevel);
+      const steps = parseSteps(req.approvalSteps);
       const level = req.currentLevel;
-      await tx.leaveApproval.create({ data: { requestId: id, approverUserId: user.userId, level, decision, comment: note } });
+      const step = routed.step!;
+      await tx.leaveApproval.create({ data: { requestId: id, approverUserId: user.userId, level, step, decision, comment: note } });
       const recipient = await tx.user.findFirst({ where: { employeeId: req.employeeId, isActive: true }, select: { id: true } });
-      const data = { kind: 'LEAVE', requestId: id, level, leaveType: req.leaveType.code, startAt: req.startAt.toISOString(), comment: note };
+      const data = { kind: 'LEAVE', requestId: id, level, step, totalLevels: steps.length, leaveType: req.leaveType.code, startAt: req.startAt.toISOString(), comment: note };
 
       if (decision === 'REJECTED') {
         await tx.leaveRequest.update({ where: { id }, data: { status: 'REJECTED', rejectionReason: note, decidedAt: now } });
         await this.audit.record(tx, {
           actorUserId: user.userId, action: 'LEAVE_REQUEST_REJECT', entityType: 'LeaveRequest', entityId: id, ipAddress: user.ip,
-          before: { status: 'PENDING', currentLevel: level }, after: { status: 'REJECTED', level, reason: note },
+          before: { status: 'PENDING', currentLevel: level }, after: { status: 'REJECTED', level, step, reason: note },
         });
         if (recipient) await this.notifications.notify(recipient.id, {
           type: REQUEST_NOTIFICATION_TYPES.REJECTED, title: 'Leave request rejected', body: note ?? '', data: { type: REQUEST_NOTIFICATION_TYPES.REJECTED, ...data },
@@ -492,18 +486,19 @@ export class LeaveService {
         return;
       }
 
-      const next = afterLeaveApproval(level, req.leaveType.approvalLevels);
-      if (!next.final) {
-        await tx.leaveRequest.update({ where: { id }, data: { currentLevel: next.nextLevel } });
+      const exclude = [...routed.priorApproverIds, user.userId];
+      const next = await this.directory.nextPosition(P.LEAVE_APPROVE, steps, level + 1, req.employee, exclude, { skipManager: req.leaveType.isSensitive }, tx);
+      if (next) {
+        await tx.leaveRequest.update({ where: { id }, data: { currentLevel: next.level } });
         await this.audit.record(tx, {
           actorUserId: user.userId, action: 'LEAVE_REQUEST_APPROVE_LEVEL', entityType: 'LeaveRequest', entityId: id, ipAddress: user.ip,
-          before: { currentLevel: level }, after: { currentLevel: next.nextLevel, comment: note },
+          before: { currentLevel: level, step }, after: { currentLevel: next.level, step: next.step, comment: note },
         });
         if (recipient) await this.notifications.notify(recipient.id, {
-          type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, title: 'Leave request approved by your manager',
-          body: 'It now waits for HR approval.', data: { type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, ...data },
+          type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, title: `Leave request approved at step ${level} of ${steps.length}`,
+          body: note ?? 'It now waits for the next approval.', data: { type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, ...data, nextLevel: next.level, nextStep: next.step },
         }, tx);
-        await this.notifyApprovers(tx, id, req.employee, req.leaveType, next.nextLevel);
+        await this.notifyApprovers(tx, id, req.employee, req.leaveType, next.level, next.recipients);
         return;
       }
 
@@ -517,7 +512,7 @@ export class LeaveService {
       }
       await this.audit.record(tx, {
         actorUserId: user.userId, action: 'LEAVE_REQUEST_APPROVE', entityType: 'LeaveRequest', entityId: id, ipAddress: user.ip,
-        before: { status: 'PENDING', currentLevel: level }, after: { status: 'APPROVED', level, debitedMinutes: tracksBalance(req.leaveType) ? req.minutes : 0, comment: note },
+        before: { status: 'PENDING', currentLevel: level }, after: { status: 'APPROVED', level, step, debitedMinutes: tracksBalance(req.leaveType) ? req.minutes : 0, comment: note },
       });
       if (recipient) await this.notifications.notify(recipient.id, {
         type: REQUEST_NOTIFICATION_TYPES.APPROVED, title: 'Leave request approved', body: note ?? '', data: { type: REQUEST_NOTIFICATION_TYPES.APPROVED, ...data },
@@ -526,16 +521,16 @@ export class LeaveService {
     return this.get(id, { userId: user.userId, employeeId: user.employeeId, companyWide: approver?.companyWide ?? false });
   }
 
-  routed(req: LeaveRow) {
+  routed(req: LeaveRow): RoutedRequest {
     return {
-      employeeId: req.employeeId, departmentId: req.employee.departmentId, currentLevel: req.currentLevel,
-      isSensitive: req.leaveType.isSensitive,
-      priorApproverIds: req.approvals.filter((a) => a.decision === 'APPROVED').map((a) => a.approverUserId),
+      employeeId: req.employeeId, departmentId: req.employee.departmentId,
+      step: req.status === 'PENDING' ? stepAt(parseSteps(req.approvalSteps), req.currentLevel) : null,
+      priorApproverIds: priorApprovers(req.approvals),
     };
   }
 
   canAct(approver: Approver | null, req: LeaveRow): boolean {
-    return approver !== null && req.status === 'PENDING' && canDecideLeave(approver, this.routed(req));
+    return approver !== null && canDecideStep(approver, this.routed(req));
   }
 
   // ───────────── Reads ─────────────
@@ -585,13 +580,14 @@ export class LeaveService {
         reason: confidential ? null : r.reason,
         status: r.status,
         currentLevel: r.currentLevel,
-        // The number of levels and HR's rejection reason can both identify a confidential type.
-        approvalLevels: confidential ? MASKED_LEVELS : r.leaveType.approvalLevels,
+        // The chain and HR's rejection reason can both identify a confidential type.
+        approvalSteps: confidential ? null : parseSteps(r.approvalSteps),
         rejectionReason: confidential ? null : r.rejectionReason,
         createdAt: r.createdAt.toISOString(),
         decidedAt: r.decidedAt?.toISOString() ?? null,
         cancelledAt: r.cancelledAt?.toISOString() ?? null,
         approvals: confidential ? [] : steps.get(r.id) ?? [],
+        skippedLevels: confidential ? [] : skippedLevels(r.status, r.currentLevel, parseSteps(r.approvalSteps).length, r.approvals),
         documents: confidential ? [] : r.documents.map((d) => ({ ...d, createdAt: d.createdAt.toISOString() })),
       };
     });

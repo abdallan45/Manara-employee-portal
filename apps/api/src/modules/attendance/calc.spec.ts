@@ -1,5 +1,7 @@
 import { computeDayMetrics, sumPeriod, type CalcBreak, type CalcSession, type DayCalcInput, type ScheduleDayRule } from './calc';
 import { localDateTime } from '../../common/time';
+import { computeLeaveSpan } from '../requests/leave-math';
+import { BUILT_IN_SCHEDULE, effectiveHours, ruleFor, type DailyHours } from '../schedules/schedule-resolver';
 
 const D = '2026-10-15'; // a Thursday
 const at = (hm: string, date = D) => {
@@ -302,5 +304,92 @@ describe('computeDayMetrics - partial-day leave windows', () => {
     const m = run({ now: at('20:00'), leaveMinutes: 480, leaveWindows: [leave('08:00', '12:00'), leave('12:00', '16:00')] });
     expect(m.status).toBe('ON_LEAVE');
     expect(m.lateMinutes).toBe(0);
+  });
+});
+
+describe('daily hours from the employee or the settings', () => {
+  const company: DailyHours = { requiredMinutes: 540, includedBreakMinutes: 60 };
+  // Built-in schedule: Sun–Thu 08:00–17:00; D is a Thursday.
+  const rule = (hours: DailyHours) => ruleFor(BUILT_IN_SCHEDULE, D, hours);
+  const day = (hours: DailyHours, over: Partial<DayCalcInput>) => run({ schedule: rule(hours), ...over });
+
+  it('takes the requirement and allowance from the hours, not from the schedule days', () => {
+    expect(rule(company)).toMatchObject({ isWorkday: true, requiredMinutes: 540, includedBreakMinutes: 60, startMinute: 480, endMinute: 1020 });
+    expect(ruleFor(BUILT_IN_SCHEDULE, '2026-10-16', company)).toMatchObject({ isWorkday: false, requiredMinutes: 0 });
+  });
+
+  it('employee override > company default; allowance capped at the requirement', () => {
+    expect(effectiveHours(company, null)).toEqual(company);
+    expect(effectiveHours(company, { dailyRequiredMinutes: 480, includedBreakMinutes: null })).toEqual({ requiredMinutes: 480, includedBreakMinutes: 60 });
+    expect(effectiveHours(company, { dailyRequiredMinutes: null, includedBreakMinutes: 30 })).toEqual({ requiredMinutes: 540, includedBreakMinutes: 30 });
+    expect(effectiveHours({ requiredMinutes: 420, includedBreakMinutes: 0 }, null)).toEqual({ requiredMinutes: 420, includedBreakMinutes: 0 });
+    expect(effectiveHours(company, { dailyRequiredMinutes: 30, includedBreakMinutes: 60 })).toEqual({ requiredMinutes: 30, includedBreakMinutes: 30 });
+  });
+
+  it('9 h including 60 min break, no break taken: full day, nothing remaining', () => {
+    const m = day(company, { sessions: [session('08:00', '17:00')] });
+    expect(m).toMatchObject({ requiredMinutes: 540, netWorkMinutes: 540, missingMinutes: 0, extraMinutes: 0, includedBreakMinutes: 60, breakAllowanceLeftMinutes: 60 });
+  });
+
+  it('9 h including 60 min break, 60-min break: still a full day', () => {
+    const s = session('08:00', '17:00');
+    const m = day(company, { sessions: [s], breaks: [brk(s, '12:00', '13:00')] });
+    expect(m).toMatchObject({ netWorkMinutes: 540, missingMinutes: 0, breakMinutes: 60, breakAllowanceLeftMinutes: 0 });
+  });
+
+  it('9 h including 60 min break, 90-min break: the extra 30 min are missing', () => {
+    const s = session('08:00', '17:00');
+    const m = day(company, { sessions: [s], breaks: [brk(s, '12:00', '13:30')] });
+    expect(m).toMatchObject({ netWorkMinutes: 510, missingMinutes: 30, breakAllowanceLeftMinutes: 0 });
+  });
+
+  it('remaining while working counts from the full 9 hours', () => {
+    const s = session('08:00', null);
+    const m = day(company, { sessions: [s], breaks: [brk(s, '12:00', '12:30')], now: at('13:00') });
+    expect(m.status).toBe('WORKING');
+    expect(m.netWorkMinutes).toBe(300);
+    expect(m.requiredMinutes - m.netWorkMinutes).toBe(240); // done at 17:00
+    expect(m.breakAllowanceLeftMinutes).toBe(30);
+  });
+
+  it('an open break inside the allowance keeps counting as work', () => {
+    const s = session('08:00', null);
+    const m = day(company, { sessions: [s], breaks: [brk(s, '12:00', null)], now: at('12:40') });
+    expect(m).toMatchObject({ status: 'ON_BREAK', netWorkMinutes: 280, breakAllowanceLeftMinutes: 20 });
+    const over = day(company, { sessions: [s], breaks: [brk(s, '12:00', null)], now: at('13:20') });
+    expect(over).toMatchObject({ netWorkMinutes: 300, breakAllowanceLeftMinutes: 0 });
+  });
+
+  it('employee override of 8 h', () => {
+    const own = effectiveHours(company, { dailyRequiredMinutes: 480, includedBreakMinutes: null });
+    const m = day(own, { sessions: [session('08:00', '16:00')] });
+    expect(m).toMatchObject({ requiredMinutes: 480, netWorkMinutes: 480, missingMinutes: 0 });
+    expect(day(own, { sessions: [session('08:00', '17:00')] }).extraMinutes).toBe(60);
+  });
+
+  it('a changed company default applies to everyone without an override', () => {
+    const changed = effectiveHours({ requiredMinutes: 600, includedBreakMinutes: 30 }, { dailyRequiredMinutes: null, includedBreakMinutes: null });
+    const s = session('08:00', '17:00');
+    const m = day(changed, { sessions: [s], breaks: [brk(s, '12:00', '13:00')] });
+    expect(m).toMatchObject({ requiredMinutes: 600, netWorkMinutes: 510, missingMinutes: 90, includedBreakMinutes: 30 });
+  });
+
+  it('a counts-as-work break uses no allowance until it runs over its maximum', () => {
+    const s = session('08:00', '17:00');
+    const prayer = { countsAsWork: true, maxMinutes: 15 };
+    const within = day(company, { sessions: [s], breaks: [brk(s, '12:00', '12:15', prayer)] });
+    expect(within).toMatchObject({ netWorkMinutes: 540, breakAllowanceLeftMinutes: 60 });
+    const over = day(company, { sessions: [s], breaks: [brk(s, '12:00', '12:45', prayer), brk(s, '13:00', '14:00')] });
+    // 30 min over the maximum + a 60-min lunch: 30 beyond the allowance.
+    expect(over).toMatchObject({ netWorkMinutes: 510, breakAllowanceLeftMinutes: 0, missingMinutes: 30 });
+  });
+
+  it('a half day of leave halves the 9-hour requirement', () => {
+    const span = computeLeaveSpan({ mode: 'HALF_DAY', startDate: D, endDate: D, half: 'FIRST' }, () => ({ ...rule(company), isHoliday: false }));
+    expect(span.minutes).toBe(270);
+    const m = day(company, {
+      sessions: [session('12:30', '17:00')], leaveMinutes: span.minutes, leaveWindows: [{ startAt: span.startAt, endAt: span.endAt }],
+    });
+    expect(m).toMatchObject({ requiredMinutes: 270, netWorkMinutes: 270, missingMinutes: 0, lateMinutes: 0 });
   });
 });

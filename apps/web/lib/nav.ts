@@ -11,6 +11,7 @@ import {
   Eye,
   FileBarChart,
   FilePen,
+  GitBranch,
   Hourglass,
   LayoutDashboard,
   MapPin,
@@ -18,6 +19,7 @@ import {
   Plane,
   ScrollText,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Smile,
   Sun,
@@ -76,6 +78,7 @@ export type SettingsTab =
   | 'leave-types'
   | 'entitlements'
   | 'overtime'
+  | 'approvals'
   | 'general'
   | 'portal';
 
@@ -90,6 +93,7 @@ export const SETTINGS_TAB_RULES: readonly { tab: SettingsTab; allowed: (user: Se
   // HR: leave approvers with company-wide scope.
   { tab: 'entitlements', allowed: (u) => has(u, PERMISSIONS.LEAVE_APPROVE) && has(u, PERMISSIONS.ATTENDANCE_READ_ALL) },
   { tab: 'overtime', allowed: (u) => has(u, PERMISSIONS.SETTINGS_MANAGE) },
+  { tab: 'approvals', allowed: (u) => has(u, PERMISSIONS.SETTINGS_MANAGE) },
   { tab: 'general', allowed: (u) => has(u, PERMISSIONS.SETTINGS_MANAGE) },
   { tab: 'portal', allowed: (u) => has(u, PERMISSIONS.SETTINGS_MANAGE) },
 ];
@@ -115,6 +119,8 @@ export function settingsTabLabel(t: Dictionary, tab: SettingsTab): string {
       return nf.settingsTabs.general;
     case 'entitlements':
       return nf.settingsTabs.entitlements;
+    case 'approvals':
+      return t.approvalChains.settings.tabLabel;
     case 'schedules':
     case 'assignments':
     case 'holidays':
@@ -185,6 +191,11 @@ export const NAV_ITEMS: NavItem[] = [
     href: '/admin/employees', label: (t) => t.nav.employees, icon: Users, section: 'admin', group: 'people',
     keywords: ['people', 'staff', 'team', 'employee', 'user', 'account', 'موظف', 'موظفين', 'فريق', 'حساب'],
     visible: (u) => has(u, PERMISSIONS.EMPLOYEES_READ, PERMISSIONS.EMPLOYEES_MANAGE),
+  },
+  {
+    href: '/admin/roles', label: (t) => t.approvalChains.roles.navLabel, icon: ShieldCheck, section: 'admin', group: 'people',
+    keywords: ['roles', 'permissions', 'access', 'rights', 'project manager', 'الأدوار', 'الصلاحيات', 'صلاحية', 'مدير مشروع'],
+    visible: (u) => has(u, PERMISSIONS.ROLES_MANAGE),
   },
   {
     href: '/admin/departments', label: (t) => t.nav.departments, icon: Building2, section: 'admin', group: 'people',
@@ -380,6 +391,12 @@ export const SETTING_LINKS: readonly SettingLink[] = [
     label: (t) => settingsTabLabel(t, 'overtime'), description: (t) => t.navFindability.settingDescriptions.overtime,
     keywords: ['overtime', 'multiplier', 'rate', 'extra time', 'اضافي', 'معامل'],
     allowed: tabAllowed('overtime'),
+  },
+  {
+    id: 'approvals', group: 'overtime', href: settingsHref('approvals'), icon: GitBranch,
+    label: (t) => settingsTabLabel(t, 'approvals'), description: (t) => t.approvalChains.settings.tabDescription,
+    keywords: ['approval chain', 'approvers', 'workflow', 'two approvals', 'general manager', 'سلسلة الموافقات', 'موافقتين', 'المدير العام', 'اعتماد'],
+    allowed: tabAllowed('approvals'),
   },
   {
     id: 'general', group: 'access', href: settingsHref('general'), icon: SlidersHorizontal,

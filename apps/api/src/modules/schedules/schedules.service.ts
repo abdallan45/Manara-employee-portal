@@ -4,7 +4,7 @@ import { PERMISSIONS, type EmployeeScheduleDto, type HolidayDto, type ScheduleAs
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
-import { attendanceScope, inScope } from '../../common/scope';
+import { attendanceScope, employeeScopeWhere, inScope, type Scope } from '../../common/scope';
 import { addDays, dateOnly, localDate } from '../../common/time';
 import { AuditService } from '../audit/audit.service';
 import { assertDate, daySpan } from '../attendance/date-range';
@@ -34,9 +34,9 @@ const holidayToDto = (h: Holiday): HolidayDto => ({
  * Departments whose schedules a user may read: null = all (schedule managers, company-wide attendance),
  * the managed departments for team viewers, none for callers who may only see themselves.
  */
-function viewScope(user: AuthUser): string[] | null {
+function viewScope(user: AuthUser): Scope | null {
   if (user.permissions.has(PERMISSIONS.SCHEDULES_MANAGE)) return null;
-  if (!user.permissions.has(PERMISSIONS.ATTENDANCE_READ_ALL) && !user.permissions.has(PERMISSIONS.ATTENDANCE_READ_TEAM)) return [];
+  if (!user.permissions.has(PERMISSIONS.ATTENDANCE_READ_ALL) && !user.permissions.has(PERMISSIONS.ATTENDANCE_READ_TEAM)) return { departmentIds: [], employeeIds: [] };
   return attendanceScope(user);
 }
 
@@ -70,7 +70,7 @@ function normaliseDays(shape: ScheduleShape) {
       throw invalid('FIXED workdays need distinct startMinute and endMinute', { weekday });
     }
     if ((start === null) !== (end === null)) throw invalid('startMinute and endMinute must be given together', { weekday });
-    return { weekday, isWorkday: true, startMinute: start, endMinute: end, requiredMinutes: d.requiredMinutes };
+    return { weekday, isWorkday: true, startMinute: start, endMinute: end, requiredMinutes: d.requiredMinutes ?? 0 };
   });
 }
 
@@ -148,7 +148,7 @@ export class SchedulesService {
     const scope = viewScope(user);
     const where: Prisma.ScheduleAssignmentWhereInput = scope === null
       ? { scheduleId }
-      : { scheduleId, OR: [{ departmentId: { in: scope } }, { employee: { departmentId: { in: scope } } }] };
+      : { scheduleId, OR: [{ departmentId: { in: scope.departmentIds } }, { employee: employeeScopeWhere(scope) }] };
     const rows = await this.prisma.scheduleAssignment.findMany({ where, orderBy: { validFrom: 'desc' } });
     return rows.map(assignmentToDto);
   }
@@ -224,7 +224,7 @@ export class SchedulesService {
     const employee = await this.prisma.employee.findFirst({ where: { id: employeeId, deletedAt: null }, select: { id: true, departmentId: true, locationId: true } });
     if (!employee) throw AppError.notFound('Employee not found');
     // Out of scope (including callers who may only see themselves) answers like a missing employee.
-    if (employee.id !== user.employeeId && !inScope(viewScope(user), employee.departmentId)) throw AppError.notFound('Employee not found');
+    if (employee.id !== user.employeeId && !inScope(viewScope(user), employee)) throw AppError.notFound('Employee not found');
     const context = await this.resolver.load([employee], day, day);
     const { schedule, source } = context.schedule(employee, day);
     let validTo: string | null = null;

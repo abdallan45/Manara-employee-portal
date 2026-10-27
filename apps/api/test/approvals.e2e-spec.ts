@@ -100,8 +100,10 @@ describe('Approval Center', () => {
 
   it('rejected tab, rejection comments, unknown kinds', async () => {
     const r = await inbox();
-    expect((await people.http.hr.post(`/api/v1/approvals/leave/${r.opsLeave.id}/reject`).send({ comment: '  ' })).status).toBe(400);
-    const res = await people.http.hr.post(`/api/v1/approvals/leave/${r.opsLeave.id}/reject`).send({ comment: 'Team already short' });
+    expect((await people.http.opsMgr.post(`/api/v1/approvals/leave/${r.opsLeave.id}/reject`).send({ comment: '  ' })).status).toBe(400);
+    // HR does not decide the manager step of an employee who has a manager.
+    expect((await people.http.hr.post(`/api/v1/approvals/leave/${r.opsLeave.id}/reject`).send({ comment: 'No' })).body.error.code).toBe('APPROVAL_NOT_ALLOWED');
+    const res = await people.http.opsMgr.post(`/api/v1/approvals/leave/${r.opsLeave.id}/reject`).send({ comment: 'Team already short' });
     expect(res.body).toMatchObject({ status: 'REJECTED', leave: { rejectionReason: 'Team already short', approvals: [expect.objectContaining({ decision: 'REJECTED', comment: 'Team already short' })] } });
     const rejected = await people.http.hr.get('/api/v1/approvals?tab=REJECTED');
     expect(ids(rejected.body)).toEqual([r.opsLeave.id]);

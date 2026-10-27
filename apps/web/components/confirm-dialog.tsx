@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import {
@@ -20,7 +20,7 @@ import { useI18n } from '@/lib/i18n/context';
  * it settles. Name the outcome on both buttons (confirmLabel / cancelLabel, e.g. "Deactivate" / "Keep
  * active"). The safe (cancel) button has initial focus, so Enter never triggers a destructive action.
  */
-export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel, cancelLabel, destructive = false, onConfirm }: {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel, cancelLabel, destructive = false, onConfirm, children }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -30,6 +30,8 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
   cancelLabel?: string;
   destructive?: boolean;
   onConfirm: () => Promise<boolean | void> | boolean | void;
+  /** Extra content between the text and the buttons (e.g. an optional note). */
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
@@ -58,6 +60,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
+        {children}
         <AlertDialogFooter>
           <AlertDialogCancel ref={cancelRef} disabled={busy}>
             {cancelLabel ?? t.common.cancel}

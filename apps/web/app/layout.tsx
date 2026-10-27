@@ -11,7 +11,8 @@ export const metadata: Metadata = {
   manifest: '/manifest.webmanifest',
   // iOS ignores SVG for the home-screen icon.
   icons: { icon: '/icon.svg', apple: '/apple-touch-icon.png' },
-  appleWebApp: { capable: true, title: 'Employee Portal', statusBarStyle: 'black-translucent' },
+  // 'black' keeps the page below the iOS status bar (clock, battery); 'black-translucent' drew the header under it.
+  appleWebApp: { capable: true, title: 'Employee Portal', statusBarStyle: 'black' },
 };
 
 export const viewport: Viewport = {

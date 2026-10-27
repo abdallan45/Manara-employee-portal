@@ -10,7 +10,7 @@ import { ActiveBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatDateTime, formatNumber, formatWorkDate, localized, todayInAmman } from '@/lib/format';
+import { formatDateTime, formatMinutes, formatNumber, formatWorkDate, localized, todayInAmman } from '@/lib/format';
 import { fmt, type Dictionary } from '@/lib/i18n/dictionaries';
 import { useI18n } from '@/lib/i18n/context';
 import { useApi } from '@/lib/use-api';
@@ -94,8 +94,9 @@ export function ProfileTab({ employee: e, manager, from, onEdit }: {
   onEdit?: () => void;
 }) {
   const canManage = onEdit !== undefined;
-  const { t, locale } = useI18n();
+  const { t, locale, units } = useI18n();
   const p = t.employeeHub.profile;
+  const c = t.approvalChains.employee;
   const f = t.employees.fields;
   const departments = useApi<DepartmentDto[]>('/departments');
   const roleKeys = Array.from(new Set((e.user?.roles ?? []).map((r) => r.key)));
@@ -151,6 +152,27 @@ export function ProfileTab({ employee: e, manager, from, onEdit }: {
               </span>
             </Item>
           )}
+          <Item label={c.supervisors}>
+            {e.supervisors.length ? (
+              <span className="flex flex-wrap gap-1">
+                {e.supervisors.map((s) => (
+                  <Badge key={s.userId} variant="outline">
+                    <bdi>{localized(locale, s.name, s.nameAr) || s.username}</bdi>
+                  </Badge>
+                ))}
+              </span>
+            ) : (
+              '—'
+            )}
+          </Item>
+          {(e.dailyRequiredMinutes !== null || e.includedBreakMinutes !== null) && (
+            <Item label={c.hours}>
+              <span className="grid gap-0.5">
+                {e.dailyRequiredMinutes !== null && <span>{c.dailyHours}: <bdi>{formatMinutes(e.dailyRequiredMinutes, units)}</bdi></span>}
+                {e.includedBreakMinutes !== null && <span>{c.breakMinutes}: <bdi>{formatMinutes(e.includedBreakMinutes, units)}</bdi></span>}
+              </span>
+            </Item>
+          )}
           <Item label={f.hireDate}>
             {e.hireDate ? (
               <>
@@ -183,7 +205,7 @@ export function ProfileTab({ employee: e, manager, from, onEdit }: {
                 <ul className="flex flex-wrap gap-1.5">
                   {roleKeys.map((k) => (
                     <li key={k}>
-                      <Badge variant="outline">{t.employeeHub.roles[k] ?? k}</Badge>
+                      <Badge variant="outline">{t.approvalChains.roleNames[k] ?? t.employeeHub.roles[k] ?? k}</Badge>
                     </li>
                   ))}
                 </ul>

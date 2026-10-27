@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { AssignmentsTab } from '../schedules/assignments-tab';
 import { HolidaysTab } from '../schedules/holidays-tab';
 import { SchedulesTab } from '../schedules/schedules-tab';
+import { ApprovalsTab } from './approvals-tab';
 import { BreakTypesTab } from './break-types-tab';
 import { GeneralTab } from './general-tab';
 import { LeaveTypesTab } from './leave-types-tab';
@@ -56,6 +57,7 @@ const CONTENT: Record<SettingsTab, () => ReactNode> = {
   'leave-types': () => <LeaveTypesTab />,
   entitlements: () => <LeaveEntitlements />,
   overtime: () => <OvertimeTab />,
+  approvals: () => <ApprovalsTab />,
   general: () => <GeneralTab />,
   portal: () => <PortalTab />,
 };

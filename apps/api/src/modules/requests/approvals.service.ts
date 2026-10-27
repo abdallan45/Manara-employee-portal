@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, RequestStatus } from '@prisma/client';
 import {
   PERMISSIONS,
   type ApprovalItemDto, type ApprovalSummaryDto, type ApprovalTab, type BulkApproveInput, type BulkApproveResultDto, type Paginated, type RequestKind,
@@ -7,7 +7,7 @@ import {
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
-import { approverFor, type Approver } from './approval-routing';
+import { approverFor, coversEmployee, parseSteps, stepAt, type Approver } from './approval-routing';
 import { CorrectionsService, type CorrectionRow } from './corrections.service';
 import { LeaveService, type LeaveRow } from './leave.service';
 import { OvertimeService, type OvertimeRow } from './overtime.service';
@@ -26,7 +26,24 @@ export interface ApprovalQuery {
 
 interface Approvers { leave: Approver | null; overtime: Approver | null; correction: Approver | null }
 
-/** One inbox over leave, overtime and correction requests, limited to what the viewer may approve. */
+/** Where a pending request stands in its chain, for the inbox. */
+function chainPosition(row: { status: string; currentLevel: number; approvalSteps: unknown }) {
+  const steps = parseSteps(row.approvalSteps);
+  return {
+    currentStep: row.status === 'PENDING' ? stepAt(steps, row.currentLevel) : null,
+    currentLevel: row.currentLevel,
+    totalLevels: steps.length,
+  };
+}
+
+const sees = (a: Approver) => a.companyWide || a.superAdmin;
+
+/**
+ * One inbox over leave, overtime and correction requests. Pending: what the viewer can decide now
+ * (the request's current step is theirs) plus, for information, the other pending requests of the
+ * employees they see. History: decided requests of the employees they see and every request they
+ * decided themselves.
+ */
 @Injectable()
 export class ApprovalsService {
   constructor(
@@ -46,21 +63,27 @@ export class ApprovalsService {
     return a;
   }
 
-  /**
-   * Employees in the approver's scope, never the viewer's own requests (those live on the My pages).
-   * `onlyEmployeeId` narrows to one employee inside that scope (the employee page).
-   */
-  private employeeWhere(a: Approver, onlyEmployeeId?: string) {
+  /** Never the viewer's own requests (those live on the My pages); `onlyEmployeeId` narrows to one employee. */
+  private employeeIdWhere(a: Approver, onlyEmployeeId?: string) {
     const id = { ...(onlyEmployeeId ? { equals: onlyEmployeeId } : {}), ...(a.employeeId ? { not: a.employeeId } : {}) };
+    return Object.keys(id).length ? { employeeId: id } : {};
+  }
+
+  /** Decided requests the viewer may list: their team's (everyone's for HR) and the ones they decided. */
+  private historyWhere(a: Approver, status: RequestStatus, onlyEmployeeId?: string) {
+    if (sees(a)) return { status, ...this.employeeIdWhere(a, onlyEmployeeId) };
     return {
-      ...(Object.keys(id).length ? { employeeId: id } : {}),
-      ...(a.companyWide ? {} : { employee: { departmentId: { in: a.departmentIds } } }),
+      status, ...this.employeeIdWhere(a, onlyEmployeeId),
+      OR: [
+        { employee: { OR: [{ departmentId: { in: a.departmentIds } }, { id: { in: a.employeeIds } }] } },
+        { approvals: { some: { approverUserId: a.userId } } },
+      ],
     };
   }
 
-  private leaveWhere(a: Approver, status: Prisma.LeaveRequestWhereInput['status'], onlyEmployeeId?: string): Prisma.LeaveRequestWhereInput {
-    // Department managers never see sensitive leave types in the inbox.
-    return { status, ...this.employeeWhere(a, onlyEmployeeId), ...(a.companyWide ? {} : { leaveType: { isSensitive: false } }) };
+  private leaveHistoryWhere(a: Approver, status: RequestStatus, onlyEmployeeId?: string): Prisma.LeaveRequestWhereInput {
+    // Managers never see sensitive leave types.
+    return { ...this.historyWhere(a, status, onlyEmployeeId), ...(sees(a) ? {} : { leaveType: { isSensitive: false } }) };
   }
 
   private async items(user: AuthUser, a: Approvers, rows: { leave: LeaveRow[]; overtime: OvertimeRow[]; correction: CorrectionRow[] }): Promise<ApprovalItemDto[]> {
@@ -74,33 +97,48 @@ export class ApprovalsService {
     return [
       ...leave.map((d, i): ApprovalItemDto => ({
         ...base, kind: 'LEAVE', id: d.id, status: d.status, employee: d.employee, submittedAt: d.createdAt, decidedAt: d.decidedAt,
-        canAct: this.leave.canAct(a.leave, rows.leave[i]), leave: d,
+        canAct: this.leave.canAct(a.leave, rows.leave[i]),
+        // The chain of a confidential type could identify it.
+        ...(d.confidential ? { currentStep: null, currentLevel: 0, totalLevels: 0 } : chainPosition(rows.leave[i])),
+        leave: d,
       })),
       ...overtime.map((d, i): ApprovalItemDto => ({
         ...base, kind: 'OVERTIME', id: d.id, status: d.status, employee: d.employee, submittedAt: d.createdAt, decidedAt: d.decidedAt,
-        canAct: this.overtime.canAct(a.overtime, rows.overtime[i]), overtime: d,
+        canAct: this.overtime.canAct(a.overtime, rows.overtime[i]), ...chainPosition(rows.overtime[i]), overtime: d,
       })),
       ...correction.map((d, i): ApprovalItemDto => ({
         ...base, kind: 'CORRECTION', id: d.id, status: d.status, employee: d.employee, submittedAt: d.createdAt, decidedAt: d.decidedAt,
-        canAct: this.corrections.canAct(a.correction, rows.correction[i]), correction: d,
+        canAct: this.corrections.canAct(a.correction, rows.correction[i]), ...chainPosition(rows.correction[i]), correction: d,
       })),
     ];
   }
 
+  /**
+   * Pending work is small (one company): load it all and keep what the viewer can decide or may see.
+   * Role steps can make a request decidable by someone outside the employee's team, so the filter runs here.
+   */
   private async pendingRows(a: Approvers, kind?: RequestKind, employeeId?: string) {
     const want = (k: RequestKind) => !kind || kind === k;
+    const keep = <R extends { employeeId: string; employee: { departmentId: string | null } }>(
+      approver: Approver, rows: R[], canAct: (r: R) => boolean, hidden: (r: R) => boolean = () => false,
+    ) => rows.filter((r) => canAct(r) || (!hidden(r) && coversEmployee(approver, { employeeId: r.employeeId, departmentId: r.employee.departmentId })));
     const [leave, overtime, correction] = await Promise.all([
       a.leave && want('LEAVE')
-        ? this.prisma.leaveRequest.findMany({ where: this.leaveWhere(a.leave, 'PENDING', employeeId), include: LeaveService.include, orderBy: { createdAt: 'asc' } })
+        ? this.prisma.leaveRequest.findMany({ where: { status: 'PENDING', ...this.employeeIdWhere(a.leave, employeeId) }, include: LeaveService.include, orderBy: { createdAt: 'asc' } })
         : Promise.resolve([]),
       a.overtime && want('OVERTIME')
-        ? this.prisma.overtimeRequest.findMany({ where: { status: 'PENDING', ...this.employeeWhere(a.overtime, employeeId) }, include: OvertimeService.include, orderBy: { createdAt: 'asc' } })
+        ? this.prisma.overtimeRequest.findMany({ where: { status: 'PENDING', ...this.employeeIdWhere(a.overtime, employeeId) }, include: OvertimeService.include, orderBy: { createdAt: 'asc' } })
         : Promise.resolve([]),
       a.correction && want('CORRECTION')
-        ? this.prisma.attendanceCorrection.findMany({ where: { status: 'PENDING', ...this.employeeWhere(a.correction, employeeId) }, include: CorrectionsService.include, orderBy: { createdAt: 'asc' } })
+        ? this.prisma.attendanceCorrection.findMany({ where: { status: 'PENDING', ...this.employeeIdWhere(a.correction, employeeId) }, include: CorrectionsService.include, orderBy: { createdAt: 'asc' } })
         : Promise.resolve([]),
     ]);
-    return { leave, overtime, correction };
+    return {
+      // Managers never see sensitive leave types unless a step of it is theirs to decide.
+      leave: a.leave ? keep(a.leave, leave, (r) => this.leave.canAct(a.leave, r), (r) => r.leaveType.isSensitive && !sees(a.leave!)) : [],
+      overtime: a.overtime ? keep(a.overtime, overtime, (r) => this.overtime.canAct(a.overtime, r)) : [],
+      correction: a.correction ? keep(a.correction, correction, (r) => this.corrections.canAct(a.correction, r)) : [],
+    };
   }
 
   async list(user: AuthUser, q: ApprovalQuery): Promise<Paginated<ApprovalItemDto>> {
@@ -109,7 +147,6 @@ export class ApprovalsService {
     const skip = (q.page - 1) * q.pageSize;
 
     if (q.tab === 'PENDING') {
-      // Pending work is small (one company); load it all so "can act" items sort first.
       const items = await this.items(user, a, await this.pendingRows(a, q.kind, q.employeeId));
       items.sort((x, y) => Number(y.canAct) - Number(x.canAct) || x.submittedAt.localeCompare(y.submittedAt));
       return { items: items.slice(skip, skip + q.pageSize), total: items.length, page: q.page, pageSize: q.pageSize };
@@ -119,9 +156,9 @@ export class ApprovalsService {
     const status = q.tab;
     const take = q.page * q.pageSize;
     const order = [{ decidedAt: 'desc' as const }, { createdAt: 'desc' as const }];
-    const leaveWhere = a.leave && want('LEAVE') ? this.leaveWhere(a.leave, status, q.employeeId) : null;
-    const overtimeWhere = a.overtime && want('OVERTIME') ? { status, ...this.employeeWhere(a.overtime, q.employeeId) } : null;
-    const correctionWhere = a.correction && want('CORRECTION') ? { status, ...this.employeeWhere(a.correction, q.employeeId) } : null;
+    const leaveWhere = a.leave && want('LEAVE') ? this.leaveHistoryWhere(a.leave, status, q.employeeId) : null;
+    const overtimeWhere: Prisma.OvertimeRequestWhereInput | null = a.overtime && want('OVERTIME') ? this.historyWhere(a.overtime, status, q.employeeId) : null;
+    const correctionWhere: Prisma.AttendanceCorrectionWhereInput | null = a.correction && want('CORRECTION') ? this.historyWhere(a.correction, status, q.employeeId) : null;
     const [leave, overtime, correction, counts] = await Promise.all([
       leaveWhere ? this.prisma.leaveRequest.findMany({ where: leaveWhere, include: LeaveService.include, orderBy: order, take }) : Promise.resolve([]),
       overtimeWhere ? this.prisma.overtimeRequest.findMany({ where: overtimeWhere, include: OvertimeService.include, orderBy: order, take }) : Promise.resolve([]),
@@ -139,9 +176,13 @@ export class ApprovalsService {
 
   async summary(user: AuthUser): Promise<ApprovalSummaryDto> {
     const a = this.approvers(user);
-    const items = await this.items(user, a, await this.pendingRows(a));
-    const count = (k: RequestKind) => items.filter((i) => i.kind === k && i.canAct).length;
-    const pending = { leave: count('LEAVE'), overtime: count('OVERTIME'), correction: count('CORRECTION'), total: 0 };
+    const rows = await this.pendingRows(a);
+    const pending = {
+      leave: rows.leave.filter((r) => this.leave.canAct(a.leave, r)).length,
+      overtime: rows.overtime.filter((r) => this.overtime.canAct(a.overtime, r)).length,
+      correction: rows.correction.filter((r) => this.corrections.canAct(a.correction, r)).length,
+      total: 0,
+    };
     pending.total = pending.leave + pending.overtime + pending.correction;
     return { pending };
   }

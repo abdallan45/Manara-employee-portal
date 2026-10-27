@@ -260,6 +260,8 @@
   /* Latin-only display face (numbers / Latin headings); Arabic text falls back to Plex Arabic via unicode-range. */
   .num { font-family: var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  /* Non-zero only where the system bar overlays the page (e.g. Android edge-to-edge, landscape notch). */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
   /* Text links: 6.9:1 on the dark background, 6.1:1 on the light one. */
   .text-link { color: var(--link); }
   /* Arabic glyphs need a little more size than Latin at the smallest step. */

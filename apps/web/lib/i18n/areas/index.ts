@@ -2,6 +2,7 @@
 // parallel work does not collide in en.ts / ar.ts. Every area is reachable as t.<camelCaseId>.
 import * as accountSecurity from './account-security';
 import * as adminWorkflows from './admin-workflows';
+import * as approvalChains from './approval-chains';
 import * as employeeHub from './employee-hub';
 import * as employeeSelfService from './employee-self-service';
 import * as mascotAdmin from './mascot-admin';
@@ -18,6 +19,7 @@ export const areasEn = {
   uiFoundation: uiFoundation.en,
   mascotAdmin: mascotAdmin.en,
   accountSecurity: accountSecurity.en,
+  approvalChains: approvalChains.en,
 };
 
 export const areasAr: typeof areasEn = {
@@ -29,4 +31,5 @@ export const areasAr: typeof areasEn = {
   uiFoundation: uiFoundation.ar,
   mascotAdmin: mascotAdmin.ar,
   accountSecurity: accountSecurity.ar,
+  approvalChains: approvalChains.ar,
 };

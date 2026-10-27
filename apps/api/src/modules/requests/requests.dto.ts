@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, Max, Min, ValidateNested,
 } from 'class-validator';
+import { MAX_APPROVAL_STEPS } from '@workforce/shared';
 import type {
   ApprovalTab, CorrectionKind, CreateCorrectionInput, CreateLeaveRequestInput, DirectCorrectionInput, CreateLeaveTypeInput, CreateOvertimeRequestInput, HalfDay,
   DirectOvertimeInput, LeaveAccrual, LeaveMode, LeaveUnit, OvertimeCompensation, RequestKind, RequestStatus, SetLeaveEntitlementInput, UpdateLeaveTypeInput,
@@ -74,6 +75,8 @@ const ACCRUALS: LeaveAccrual[] = ['NONE', 'MONTHLY', 'YEARLY'];
 const MAX_LEAVE_MINUTES = 366 * 480;
 const REMOTE_WORK_DOC = 'Approved requests are remote working days, not leave: the schedule applies and check-ins away from the office are accepted on those days. Requires accrual NONE and no entitlement';
 
+const CHAIN_DOC = 'Approval chain in order: MANAGER (the employee supervisors and department managers) or role keys such as HR_ADMIN, GENERAL_MANAGER';
+
 export class UpdateLeaveTypeDto implements UpdateLeaveTypeInput {
   @ApiPropertyOptional({ example: 'Annual leave' }) @IsOptional() @IsString() @Length(1, 120) name?: string;
   @ApiPropertyOptional({ nullable: true, type: String, example: 'إجازة سنوية' }) @IsOptional() @IsString() @Length(0, 120) nameAr?: string | null;
@@ -87,7 +90,8 @@ export class UpdateLeaveTypeDto implements UpdateLeaveTypeInput {
   @ApiPropertyOptional({ example: 3360, description: 'Most minutes carried into the next year (0 = none)' })
   @IsOptional() @IsInt() @Min(0) @Max(MAX_LEAVE_MINUTES) carryoverMaxMinutes?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() requiresAttachment?: boolean;
-  @ApiPropertyOptional({ example: 1, description: '1 = manager only; 2–3 add HR levels' }) @IsOptional() @IsInt() @Min(1) @Max(3) approvalLevels?: number;
+  @ApiPropertyOptional({ type: [String], example: ['MANAGER', 'HR_ADMIN'], description: CHAIN_DOC })
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_APPROVAL_STEPS) @IsString({ each: true }) approvalSteps?: string[];
   @ApiPropertyOptional({ description: 'Sensitive types skip the manager step and are masked for managers' }) @IsOptional() @IsBoolean() isSensitive?: boolean;
   @ApiPropertyOptional({ description: REMOTE_WORK_DOC }) @IsOptional() @IsBoolean() isRemoteWork?: boolean;
   @ApiPropertyOptional({ description: 'false deactivates: hidden from new requests and balances; history is kept' }) @IsOptional() @IsBoolean() isActive?: boolean;
@@ -103,7 +107,8 @@ export class CreateLeaveTypeDto implements CreateLeaveTypeInput {
   @ApiPropertyOptional({ example: 6720, default: 0 }) @IsOptional() @IsInt() @Min(0) @Max(MAX_LEAVE_MINUTES) annualEntitlementMinutes?: number;
   @ApiPropertyOptional({ example: 3360, default: 0 }) @IsOptional() @IsInt() @Min(0) @Max(MAX_LEAVE_MINUTES) carryoverMaxMinutes?: number;
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() requiresAttachment?: boolean;
-  @ApiPropertyOptional({ default: 1 }) @IsOptional() @IsInt() @Min(1) @Max(3) approvalLevels?: number;
+  @ApiPropertyOptional({ type: [String], default: ['MANAGER'], description: CHAIN_DOC })
+  @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_APPROVAL_STEPS) @IsString({ each: true }) approvalSteps?: string[];
   @ApiPropertyOptional({ default: false }) @IsOptional() @IsBoolean() isSensitive?: boolean;
   @ApiPropertyOptional({ default: false, description: REMOTE_WORK_DOC }) @IsOptional() @IsBoolean() isRemoteWork?: boolean;
   @ApiPropertyOptional({ default: true }) @IsOptional() @IsBoolean() isActive?: boolean;

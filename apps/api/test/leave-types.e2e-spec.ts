@@ -26,7 +26,7 @@ const balanceCodes = (body: { leaveType: { code: string } }[]) => body.map((b) =
 
 const marriage = {
   code: 'MARRIAGE', name: 'Marriage leave', nameAr: 'إجازة زواج', unit: 'DAY', accrual: 'YEARLY',
-  annualEntitlementMinutes: 3 * DAY, approvalLevels: 2,
+  annualEntitlementMinutes: 3 * DAY, approvalSteps: ['MANAGER', 'HR_ADMIN'],
 };
 
 describe('leave type configuration', () => {
@@ -43,7 +43,7 @@ describe('leave type configuration', () => {
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
       code: 'MARRIAGE', name: 'Marriage leave', nameAr: 'إجازة زواج', isPaid: true, unit: 'DAY', accrual: 'YEARLY',
-      annualEntitlementMinutes: 3 * DAY, carryoverMaxMinutes: 0, requiresAttachment: false, approvalLevels: 2,
+      annualEntitlementMinutes: 3 * DAY, carryoverMaxMinutes: 0, requiresAttachment: false, approvalSteps: ['MANAGER', 'HR_ADMIN'],
       isSensitive: false, isActive: true, tracksBalance: true,
     });
     expect(await auditActions(res.body.id)).toEqual(['LEAVE_TYPE_CREATE']);
@@ -60,7 +60,7 @@ describe('leave type configuration', () => {
     expect(lower.status).toBe(400);
     expectErrorEnvelope(lower.body, 'VALIDATION_FAILED');
     expect((await admin.post('/api/v1/leave/types').send({ ...marriage, unit: 'WEEK' })).status).toBe(400);
-    expect((await admin.post('/api/v1/leave/types').send({ ...marriage, approvalLevels: 4 })).status).toBe(400);
+    expect((await admin.post('/api/v1/leave/types').send({ ...marriage, approvalLevels: 2 })).status).toBe(400); // replaced by approvalSteps
     expect((await admin.post('/api/v1/leave/types').send({ ...marriage, annualEntitlementMinutes: -1 })).status).toBe(400);
 
     const inconsistent = await admin.post('/api/v1/leave/types').send({ ...marriage, accrual: 'NONE' });
@@ -81,6 +81,30 @@ describe('leave type configuration', () => {
     expect((await admin.patch(`/api/v1/leave/types/${catalog.annual.id}`).send({ code: 'OTHER' })).status).toBe(400); // code is fixed
     const missing = await admin.patch('/api/v1/leave/types/00000000-0000-4000-8000-000000000000').send({ name: 'X' });
     expect(missing.status).toBe(404);
+  });
+
+  it('approval chains: MANAGER or existing roles, 1 to 4 steps; the default is the manager alone', async () => {
+    const admin = people.http.admin;
+    const noChain = { ...marriage, approvalSteps: undefined };
+    const plain = await admin.post('/api/v1/leave/types').send({ ...noChain, code: 'PLAIN' });
+    expect(plain.body.approvalSteps).toEqual(['MANAGER']);
+
+    for (const approvalSteps of [[], ['MANAGER', 'HR_ADMIN', 'GENERAL_MANAGER', 'HR_ADMIN', 'MANAGER'], ['NO_SUCH_ROLE'], ['ANY_APPROVER'], ['DIRECT'], [3]]) {
+      const res = await admin.post('/api/v1/leave/types').send({ ...marriage, approvalSteps });
+      expect(res.status).toBe(400);
+      expectErrorEnvelope(res.body, 'VALIDATION_FAILED');
+    }
+    const unknown = await admin.patch(`/api/v1/leave/types/${catalog.annual.id}`).send({ approvalSteps: ['MANAGER', 'CFO'] });
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error.details).toEqual([expect.objectContaining({ field: 'approvalSteps' })]);
+
+    const chain = ['MANAGER', 'HR_ADMIN', 'GENERAL_MANAGER'];
+    const ok = await admin.patch(`/api/v1/leave/types/${catalog.annual.id}`).send({ approvalSteps: chain });
+    expect(ok.status).toBe(200);
+    expect(ok.body.approvalSteps).toEqual(chain);
+    const audit = await prisma.auditLog.findFirst({ where: { entityId: catalog.annual.id, action: 'LEAVE_TYPE_UPDATE' } });
+    expect(audit?.before).toMatchObject({ approvalSteps: ['MANAGER'] });
+    expect(audit?.after).toMatchObject({ approvalSteps: chain });
   });
 
   it('updates are audited with before/after; posted ledger rows are not rewritten', async () => {

@@ -85,6 +85,24 @@ function clockToMinutes(value: string): number {
   return h * 60 + m;
 }
 
+/**
+ * Work minutes added since the status snapshot while the employee is on a break. Break time counts as
+ * work while it fits in the day's remaining break allowance, and a counts-as-work break type also up to
+ * its maximum; only the rest is lost. `counting` says whether the break still counts at `now`.
+ */
+function workDuringBreak(data: AttendanceStatusDto, now: number): { minutes: number; counting: boolean } {
+  const snap = Date.parse(data.serverTime);
+  const since = Math.max(0, (now - snap) / 60_000);
+  if (data.state !== 'ON_BREAK' || !data.openBreak) return { minutes: 0, counting: false };
+  const type = data.openBreak.breakType;
+  const started = Date.parse(data.openBreak.startedAt);
+  const max = type.maxMinutes;
+  const over = (t: number) => (max === null ? 0 : Math.max(0, (t - started) / 60_000 - max));
+  const deductible = !type.countsAsWork ? since : max === null ? 0 : Math.max(0, over(now) - over(snap));
+  const allowanceLeft = data.today.breakAllowanceLeftMinutes;
+  return { minutes: since - Math.max(0, deductible - allowanceLeft), counting: deductible < allowanceLeft || (type.countsAsWork && over(now) === 0) };
+}
+
 function breakName(b: BreakTypeDto, locale: 'en' | 'ar'): string {
   return (locale === 'ar' && b.nameAr) || b.name;
 }
@@ -251,9 +269,11 @@ function EmployeeDay() {
   const shownError = actionError && errorStillApplies(actionError) ? actionError : null;
   if (actionError && !shownError) setActionError(null);
 
-  // Live figures: the server snapshot plus time elapsed since serverTime.
+  // Live figures: the server snapshot plus time elapsed since serverTime. The requirement includes the
+  // break allowance, so a break inside it keeps counting and "remaining" is always from the full day.
   const sinceSnapshotMin = Math.max(0, (now - Date.parse(data.serverTime)) / 60_000);
-  const liveNet = data.today.netWorkMinutes + (data.state === 'WORKING' ? sinceSnapshotMin : 0);
+  const onBreak = workDuringBreak(data, now);
+  const liveNet = data.today.netWorkMinutes + (data.state === 'WORKING' ? sinceSnapshotMin : onBreak.minutes);
   const liveBreak = data.today.breakMinutes + (data.state === 'ON_BREAK' ? sinceSnapshotMin : 0);
   const required = data.today.requiredMinutes;
   const remaining = Math.max(0, required - liveNet);
@@ -682,7 +702,7 @@ function EmployeeDay() {
                   <CircleCheck className="size-4" aria-hidden />
                   {h.doneForToday}
                 </p>
-              ) : data.state === 'WORKING' && required > 0 ? (
+              ) : (data.state === 'WORKING' || onBreak.counting) && required > 0 ? (
                 <p className="text-muted-foreground text-sm">
                   <Interpolate text={h.expectedFinish} vars={{ time: <bdi className="text-foreground tabular font-semibold">{formatTime(now + remaining * 60_000, locale)}</bdi> }} />
                 </p>

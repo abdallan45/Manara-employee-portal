@@ -74,7 +74,7 @@ describe('attendance corrections', () => {
       kind: 'WRONG_TIME', workSessionId: session.id, eventType: 'CHECK_IN', proposedTime: localDateTime(day, 8 * 60).toISOString(), reason: 'Checked in late on the app, arrived at 8',
     })).body;
     expect(req.status).toBe('PENDING');
-    await people.http.hr.post(`/api/v1/approvals/correction/${req.id}/approve`).send({});
+    await people.http.mgr.post(`/api/v1/approvals/correction/${req.id}/approve`).send({});
 
     const repaired = await prisma.workSession.findUniqueOrThrow({ where: { id: session.id } });
     expect(repaired.startedAt.toISOString()).toBe(localDateTime(day, 8 * 60).toISOString());

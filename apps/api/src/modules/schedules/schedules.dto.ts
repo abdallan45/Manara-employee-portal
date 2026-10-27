@@ -13,18 +13,19 @@ export class ScheduleDayInput {
   @IsOptional() @IsInt() @Min(0) @Max(1439) startMinute?: number | null;
   @ApiPropertyOptional({ nullable: true, type: Number, description: 'Less than startMinute = ends next day' })
   @IsOptional() @IsInt() @Min(0) @Max(1439) endMinute?: number | null;
-  @ApiProperty() @IsInt() @Min(0) @Max(1440) requiredMinutes!: number;
+  @ApiPropertyOptional({ deprecated: true, description: 'Stored for compatibility only: the daily hours come from the employee or the attendance settings' })
+  @IsOptional() @IsInt() @Min(0) @Max(1440) requiredMinutes?: number;
 }
 
 export class CreateScheduleDto {
   @ApiProperty() @IsString() @Length(1, 120) name!: string;
   @ApiProperty({ enum: ['FIXED', 'FLEXIBLE'] }) @IsIn(['FIXED', 'FLEXIBLE']) type!: 'FIXED' | 'FLEXIBLE';
   @ApiPropertyOptional({ default: 10 }) @IsOptional() @IsInt() @Min(0) @Max(240) graceMinutes?: number;
-  @ApiPropertyOptional({ default: 0, example: 60, description: 'Break time included in the day: only breaks beyond it are deducted' })
+  @ApiPropertyOptional({ deprecated: true, description: 'Stored for compatibility only: the break allowance comes from the employee or the attendance settings' })
   @IsOptional() @IsInt() @Min(0) @Max(240) includedBreakMinutes?: number;
   @ApiPropertyOptional({ nullable: true, type: Number }) @IsOptional() @IsInt() @Min(0) @Max(1439) coreStartMinute?: number | null;
   @ApiPropertyOptional({ nullable: true, type: Number }) @IsOptional() @IsInt() @Min(0) @Max(1439) coreEndMinute?: number | null;
-  @ApiPropertyOptional({ description: 'Defaults to the sum of the days’ requiredMinutes' })
+  @ApiPropertyOptional({ deprecated: true, description: 'Stored for compatibility only; defaults to the sum of the days’ requiredMinutes' })
   @IsOptional() @IsInt() @Min(0) @Max(10080) weeklyRequiredMinutes?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isDefault?: boolean;
   @ApiProperty({ type: [ScheduleDayInput] })
@@ -35,10 +36,10 @@ export class UpdateScheduleDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 120) name?: string;
   @ApiPropertyOptional({ enum: ['FIXED', 'FLEXIBLE'] }) @IsOptional() @IsIn(['FIXED', 'FLEXIBLE']) type?: 'FIXED' | 'FLEXIBLE';
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(240) graceMinutes?: number;
-  @ApiPropertyOptional({ example: 60 }) @IsOptional() @IsInt() @Min(0) @Max(240) includedBreakMinutes?: number;
+  @ApiPropertyOptional({ deprecated: true }) @IsOptional() @IsInt() @Min(0) @Max(240) includedBreakMinutes?: number;
   @ApiPropertyOptional({ nullable: true, type: Number }) @IsOptional() @IsInt() @Min(0) @Max(1439) coreStartMinute?: number | null;
   @ApiPropertyOptional({ nullable: true, type: Number }) @IsOptional() @IsInt() @Min(0) @Max(1439) coreEndMinute?: number | null;
-  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(10080) weeklyRequiredMinutes?: number;
+  @ApiPropertyOptional({ deprecated: true }) @IsOptional() @IsInt() @Min(0) @Max(10080) weeklyRequiredMinutes?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() isDefault?: boolean;
   @ApiPropertyOptional({ type: [ScheduleDayInput], description: 'Replaces all days when given' })
   @IsOptional() @IsArray() @ArrayMaxSize(7) @ValidateNested({ each: true }) @Type(() => ScheduleDayInput) days?: ScheduleDayInput[];

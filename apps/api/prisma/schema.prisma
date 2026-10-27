@@ -13,6 +13,20 @@ datasource db {
 
 // ───────────────────────────── Access control ─────────────────────────────
 
+/// A user (project manager, supervisor) who approves for and sees one employee, on top of department managers.
+model EmployeeSupervisor {
+  id               String   @id @default(uuid()) @db.Uuid
+  supervisorUserId String   @map("supervisor_user_id") @db.Uuid
+  supervisor       User     @relation(fields: [supervisorUserId], references: [id], onDelete: Cascade)
+  employeeId       String   @map("employee_id") @db.Uuid
+  employee         Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([supervisorUserId, employeeId])
+  @@index([employeeId])
+  @@map("employee_supervisors")
+}
+
 model User {
   id                 String    @id @default(uuid()) @db.Uuid
   username           String    @unique
@@ -31,6 +45,7 @@ model User {
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(3)
 
   roles         UserRole[]
+  supervising   EmployeeSupervisor[]
   sessions      Session[]
   notifications Notification[]
   auditLogs     AuditLog[]
@@ -42,6 +57,7 @@ model Role {
   id          String           @id @default(uuid()) @db.Uuid
   key         String           @unique
   name        String
+  nameAr      String?          @map("name_ar")
   description String?
   isSystem    Boolean          @default(false) @map("is_system")
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -143,27 +159,31 @@ model Location {
 }
 
 model Employee {
-  id           String      @id @default(uuid()) @db.Uuid
-  employeeCode String      @unique @map("employee_code")
-  fullName     String      @map("full_name")
-  fullNameAr   String?     @map("full_name_ar")
-  email        String?
-  phone        String?
-  jobTitle     String?     @map("job_title")
-  departmentId String?     @map("department_id") @db.Uuid
-  department   Department? @relation(fields: [departmentId], references: [id])
-  locationId   String?     @map("location_id") @db.Uuid
-  location     Location?   @relation(fields: [locationId], references: [id])
-  managerId    String?     @map("manager_id") @db.Uuid
-  manager      Employee?   @relation("Reports", fields: [managerId], references: [id])
-  reports      Employee[]  @relation("Reports")
-  hireDate     DateTime?   @map("hire_date") @db.Date
-  isActive     Boolean     @default(true) @map("is_active")
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz(3)
+  id                   String      @id @default(uuid()) @db.Uuid
+  employeeCode         String      @unique @map("employee_code")
+  fullName             String      @map("full_name")
+  fullNameAr           String?     @map("full_name_ar")
+  email                String?
+  phone                String?
+  jobTitle             String?     @map("job_title")
+  departmentId         String?     @map("department_id") @db.Uuid
+  department           Department? @relation(fields: [departmentId], references: [id])
+  locationId           String?     @map("location_id") @db.Uuid
+  location             Location?   @relation(fields: [locationId], references: [id])
+  managerId            String?     @map("manager_id") @db.Uuid
+  manager              Employee?   @relation("Reports", fields: [managerId], references: [id])
+  reports              Employee[]  @relation("Reports")
+  hireDate             DateTime?   @map("hire_date") @db.Date
+  /// Personal daily requirement (break included) and break allowance; null = company defaults in settings.
+  dailyRequiredMinutes Int?        @map("daily_required_minutes")
+  includedBreakMinutes Int?        @map("included_break_minutes")
+  isActive             Boolean     @default(true) @map("is_active")
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt            DateTime?   @map("deleted_at") @db.Timestamptz(3)
 
   user                User?
+  supervisors         EmployeeSupervisor[]
   devices             RegisteredDevice[]
   scheduleAssignments ScheduleAssignment[]
   events              AttendanceEvent[]
@@ -394,27 +414,45 @@ enum RequestStatus {
 }
 
 model AttendanceCorrection {
-  id              String              @id @default(uuid()) @db.Uuid
-  employeeId      String              @map("employee_id") @db.Uuid
-  employee        Employee            @relation(fields: [employeeId], references: [id])
-  requestedById   String              @map("requested_by_id") @db.Uuid
+  id              String               @id @default(uuid()) @db.Uuid
+  employeeId      String               @map("employee_id") @db.Uuid
+  employee        Employee             @relation(fields: [employeeId], references: [id])
+  requestedById   String               @map("requested_by_id") @db.Uuid
   kind            String // MISSING_CHECK_IN | MISSING_CHECK_OUT | WRONG_TIME | MISSING_BREAK
-  eventType       AttendanceEventType @map("event_type")
-  proposedTime    DateTime            @map("proposed_time") @db.Timestamptz(3)
+  eventType       AttendanceEventType  @map("event_type")
+  proposedTime    DateTime             @map("proposed_time") @db.Timestamptz(3)
   /// MISSING_CHECK_IN only: the check-out of the missing session (the whole session is created on approval).
-  proposedEndTime DateTime?           @map("proposed_end_time") @db.Timestamptz(3)
-  workSessionId   String?             @map("work_session_id") @db.Uuid
+  proposedEndTime DateTime?            @map("proposed_end_time") @db.Timestamptz(3)
+  workSessionId   String?              @map("work_session_id") @db.Uuid
   reason          String
-  status          RequestStatus       @default(PENDING)
-  decidedById     String?             @map("decided_by_id") @db.Uuid
-  decidedAt       DateTime?           @map("decided_at") @db.Timestamptz(3)
-  decisionComment String?             @map("decision_comment")
-  appliedEventId  String?             @map("applied_event_id") @db.Uuid
-  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  status          RequestStatus        @default(PENDING)
+  currentLevel    Int                  @default(1) @map("current_level")
+  approvalSteps   Json                 @default("[\"MANAGER\"]") @map("approval_steps")
+  approvals       CorrectionApproval[]
+  decidedById     String?              @map("decided_by_id") @db.Uuid
+  decidedAt       DateTime?            @map("decided_at") @db.Timestamptz(3)
+  decisionComment String?              @map("decision_comment")
+  appliedEventId  String?              @map("applied_event_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([employeeId, status])
   @@index([status])
   @@map("attendance_corrections")
+}
+
+model CorrectionApproval {
+  id             String               @id @default(uuid()) @db.Uuid
+  requestId      String               @map("request_id") @db.Uuid
+  request        AttendanceCorrection @relation(fields: [requestId], references: [id])
+  approverUserId String               @map("approver_user_id") @db.Uuid
+  level          Int
+  step           String               @default("MANAGER")
+  decision       RequestStatus
+  comment        String?
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([requestId])
+  @@map("correction_approvals")
 }
 
 // ───────────────────────────── Overtime ─────────────────────────────
@@ -447,6 +485,8 @@ model OvertimeRequest {
   isPreApproval   Boolean            @default(false) @map("is_pre_approval")
   reason          String
   status          RequestStatus      @default(PENDING)
+  currentLevel    Int                @default(1) @map("current_level")
+  approvalSteps   Json               @default("[\"MANAGER\"]") @map("approval_steps")
   /// Policy terms captured when the request was made, so later policy edits never change it.
   policyId        String?            @map("policy_id") @db.Uuid
   multiplier      Decimal?           @db.Decimal(5, 2)
@@ -467,6 +507,7 @@ model OvertimeApproval {
   request        OvertimeRequest @relation(fields: [requestId], references: [id])
   approverUserId String          @map("approver_user_id") @db.Uuid
   level          Int             @default(1)
+  step           String          @default("MANAGER")
   decision       RequestStatus
   comment        String?
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -487,7 +528,8 @@ model LeaveType {
   accrual                  String             @default("YEARLY") // NONE | MONTHLY | YEARLY
   carryoverMaxMinutes      Int                @default(0) @map("carryover_max_minutes")
   requiresAttachment       Boolean            @default(false) @map("requires_attachment")
-  approvalLevels           Int                @default(1) @map("approval_levels")
+  /// Approval chain: "MANAGER" or role keys, in order.
+  approvalSteps            Json               @default("[\"MANAGER\"]") @map("approval_steps")
   isSensitive              Boolean            @default(false) @map("is_sensitive")
   /// Approved requests are remote working days, not leave: the schedule still applies and check-ins away from the office are accepted.
   isRemoteWork             Boolean            @default(false) @map("is_remote_work")
@@ -584,6 +626,8 @@ model LeaveRequest {
   attachments     Json               @default("[]")
   status          RequestStatus      @default(PENDING)
   currentLevel    Int                @default(1) @map("current_level")
+  /// The leave type's chain when the request was submitted.
+  approvalSteps   Json               @default("[\"MANAGER\"]") @map("approval_steps")
   rejectionReason String?            @map("rejection_reason")
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   decidedAt       DateTime?          @map("decided_at") @db.Timestamptz(3)
@@ -604,6 +648,7 @@ model LeaveApproval {
   request        LeaveRequest  @relation(fields: [requestId], references: [id])
   approverUserId String        @map("approver_user_id") @db.Uuid
   level          Int
+  step           String        @default("MANAGER")
   decision       RequestStatus
   comment        String?
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)

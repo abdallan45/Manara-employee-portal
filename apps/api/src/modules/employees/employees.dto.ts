@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
-  ArrayMaxSize, ArrayUnique, IsArray, IsEmail, IsIn, IsOptional, IsString, IsUUID, Length, Matches, MaxLength,
+  ArrayMaxSize, ArrayUnique, IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, MaxLength, ValidateIf,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/http/pagination';
 import { PASSWORD_MAX, PASSWORD_MIN } from '../auth/password';
@@ -56,6 +56,18 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({ example: '2026-01-15', nullable: true })
   @Transform(emptyToNull) @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'hireDate must be YYYY-MM-DD' })
   hireDate?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 540, description: 'Daily requirement in minutes, break included (30-1440); null = company default' })
+  @Transform(emptyToNull) @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt()
+  dailyRequiredMinutes?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 60, description: 'Break allowance inside the day in minutes (0-240); null = company default' })
+  @Transform(emptyToNull) @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt()
+  includedBreakMinutes?: number | null;
+
+  @ApiPropertyOptional({ type: [String], description: 'User ids of the supervisors (project managers); replaces the list on update' })
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(20) @IsUUID('all', { each: true })
+  supervisorUserIds?: string[];
 
   @ApiProperty({ example: 'j.doe', pattern: USERNAME_PATTERN.source })
   @Transform(trimLower) @IsString() @Matches(USERNAME_PATTERN, { message: 'username must be 3-32 chars of a-z, 0-9, dot, underscore or dash' })

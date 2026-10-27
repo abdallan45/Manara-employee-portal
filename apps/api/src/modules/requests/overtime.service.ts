@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type OvertimePolicy, type RequestStatus } from '@prisma/client';
 import {
-  PERMISSIONS, REQUEST_NOTIFICATION_TYPES,
+  DIRECT_STEP, MANAGER_STEP, PERMISSIONS, REQUEST_NOTIFICATION_TYPES,
   type CreateOvertimeRequestInput, type DirectOvertimeInput, type DirectOvertimeResultDto, type OvertimeCandidateDto, type OvertimeCompensation,
   type OvertimeKind, type OvertimePolicyDto, type OvertimeRequestDto,
   type UpdateOvertimePolicyInput,
@@ -15,11 +15,12 @@ import { assertDate, daySpan, resolveRange } from '../attendance/date-range';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notifications/notification.service';
 import { ScheduleResolver } from '../schedules/schedule-resolver';
-import { approverFor, canDecideSingle, type Approver } from './approval-routing';
+import { SettingsService } from '../settings/settings.service';
+import { approverFor, canDecideStep, coversEmployee, parseSteps, skippedLevels, stepAt, type Approver, type RoutedRequest } from './approval-routing';
 import { approvedOvertimeMinutes, compensatedMinutes, multiplierFor, normalizeMultiplier, overtimeKind, retroAllowed } from './overtime-math';
 import {
-  ApproverDirectory, approvalStepsByRequest, assertMayDecide, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending,
-  requireEmployee, toEmployeeRef, TX_OPTIONS,
+  ApproverDirectory, approvalStepsByRequest, assertMayDecide, assertStepAllowed, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending,
+  priorApprovers, requireEmployee, toEmployeeRef, TX_OPTIONS,
 } from './request-common';
 
 const P = PERMISSIONS;
@@ -38,6 +39,16 @@ export const policyToDto = (p: OvertimePolicy): OvertimePolicyDto => ({
   notes: p.notes, isDefault: p.isDefault,
 });
 
+/**
+ * Direct approval skips the request's chain. Company-wide approvers (HR) and SUPER_ADMIN may always
+ * use it; a manager / project manager only when their approval is the whole chain anyway.
+ */
+function assertMayApproveDirectly(approver: Approver, chain: string[]): void {
+  if (approver.companyWide || approver.superAdmin) return;
+  if (chain.length === 1 && chain[0] === MANAGER_STEP) return;
+  throw AppError.forbidden('APPROVAL_NOT_ALLOWED', 'Overtime needs further approvals after yours; approve the request in the Approval Center instead');
+}
+
 @Injectable()
 export class OvertimeService {
   constructor(
@@ -47,6 +58,7 @@ export class OvertimeService {
     private readonly metrics: AttendanceMetricsService,
     private readonly notifications: NotificationService,
     private readonly directory: ApproverDirectory,
+    private readonly settings: SettingsService,
   ) {}
 
   // ───────────── Policy ─────────────
@@ -142,30 +154,39 @@ export class OvertimeService {
       });
       if (duplicate) throw AppError.conflict('DUPLICATE_REQUEST', 'There is already an overtime request for this date', { requestId: duplicate.id, status: duplicate.status });
       const multiplier = multiplierFor(policy, kind);
+      const chain = await this.directory.start(P.OVERTIME_APPROVE, parseSteps(await this.settings.get('approvals.overtimeSteps')), employee, {}, tx);
       const row = await tx.overtimeRequest.create({
         data: {
           employeeId, workDate: dateOnly.toDb(workDate), minutes: input.minutes, kind, compensation: input.compensation ?? 'PAY',
-          isPreApproval, reason: input.reason.trim(), policyId: policy.id, multiplier,
+          isPreApproval, reason: input.reason.trim(), policyId: policy.id, multiplier, currentLevel: chain.level, approvalSteps: chain.steps,
         },
       });
       await this.audit.record(tx, {
         actorUserId: user.userId, action: 'OVERTIME_REQUEST_CREATE', entityType: 'OvertimeRequest', entityId: row.id, ipAddress: user.ip,
-        after: { employeeId, workDate, minutes: input.minutes, kind, compensation: row.compensation, isPreApproval, policyId: policy.id, multiplier },
-      });
-      let recipients = await this.directory.team(P.OVERTIME_APPROVE, employee.departmentId, employeeId, tx);
-      if (!recipients.length) recipients = await this.directory.companyWide(P.OVERTIME_APPROVE, employeeId, tx);
-      await this.notifications.notifyMany(recipients, {
-        type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, title: 'Overtime request waiting for approval',
-        body: `${employee.fullName} (${employee.employeeCode}) requested ${input.minutes} minutes of overtime on ${workDate}.`,
-        data: {
-          type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, kind: 'OVERTIME', requestId: row.id, workDate, minutes: input.minutes,
-          employeeName: employee.fullName, employeeNameAr: employee.fullNameAr, employeeCode: employee.employeeCode,
+        after: {
+          employeeId, workDate, minutes: input.minutes, kind, compensation: row.compensation, isPreApproval, policyId: policy.id, multiplier,
+          currentLevel: chain.level, approvalSteps: chain.steps,
         },
-        dedupeKey: `overtime-pending:${row.id}`,
-      }, tx);
+      });
+      await this.notifyApprovers(tx, row.id, employee, workDate, input.minutes, chain.level, chain.recipients);
       return row.id;
     }, TX_OPTIONS);
     return this.get(id);
+  }
+
+  private async notifyApprovers(
+    tx: Prisma.TransactionClient, requestId: string, employee: { fullName: string; fullNameAr: string | null; employeeCode: string },
+    workDate: string, minutes: number, level: number, recipients: string[],
+  ) {
+    await this.notifications.notifyMany(recipients, {
+      type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, title: 'Overtime request waiting for approval',
+      body: `${employee.fullName} (${employee.employeeCode}) requested ${minutes} minutes of overtime on ${workDate}.`,
+      data: {
+        type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, kind: 'OVERTIME', requestId, workDate, minutes, level,
+        employeeName: employee.fullName, employeeNameAr: employee.fullNameAr, employeeCode: employee.employeeCode,
+      },
+      dedupeKey: level === 1 ? `overtime-pending:${requestId}` : `overtime-pending:${requestId}:${level}`,
+    }, tx);
   }
 
   async cancel(user: AuthUser, id: string): Promise<OvertimeRequestDto> {
@@ -184,13 +205,17 @@ export class OvertimeService {
     return this.get(id);
   }
 
+  /**
+   * Approve or reject the step the request waits at; like leave, a non-final approval moves it to the
+   * next step somebody can decide, the last approval fixes the approved minutes.
+   */
   async decide(user: AuthUser, id: string, decision: 'APPROVED' | 'REJECTED', comment: string | undefined): Promise<OvertimeRequestDto> {
     const approver = approverFor(user, P.OVERTIME_APPROVE);
     const note = comment?.trim() || null;
     if (decision === 'REJECTED' && !note) throw invalidField('comment', 'A reason is required to reject a request');
     const existing = await this.prisma.overtimeRequest.findUnique({ where: { id }, include: OVERTIME_INCLUDE });
     if (!existing) throw AppError.notFound('Overtime request not found');
-    assertMayDecide(approver, existing.employeeId, existing.employee.departmentId, approver !== null && canDecideSingle(approver, { employeeId: existing.employeeId, departmentId: existing.employee.departmentId }));
+    assertMayDecide(approver, this.routed(existing));
     const today = localDate(new Date());
     const workDate = dateOnly.fromDb(existing.workDate);
     const recorded = workDate < today
@@ -199,29 +224,60 @@ export class OvertimeService {
 
     await this.prisma.$transaction(async (tx) => {
       const now = await lockEmployee(tx, existing.employeeId);
-      const req = await tx.overtimeRequest.findUniqueOrThrow({ where: { id } });
+      const req = await tx.overtimeRequest.findUniqueOrThrow({ where: { id }, include: OVERTIME_INCLUDE });
       if (req.status !== 'PENDING') throw notPending(req.status);
+      const routed = this.routed(req);
+      assertStepAllowed(approver, routed, req.currentLevel);
+      const steps = parseSteps(req.approvalSteps);
+      const level = req.currentLevel;
+      const step = routed.step!;
+      await tx.overtimeApproval.create({ data: { requestId: id, approverUserId: user.userId, level, step, decision, comment: note } });
+      const recipient = await tx.user.findFirst({ where: { employeeId: req.employeeId, isActive: true }, select: { id: true } });
+      const base = { kind: 'OVERTIME', requestId: id, workDate, minutes: req.minutes, level, step, totalLevels: steps.length, comment: note };
+
+      if (decision === 'APPROVED') {
+        const next = await this.directory.nextPosition(P.OVERTIME_APPROVE, steps, level + 1, req.employee, [...routed.priorApproverIds, user.userId], {}, tx);
+        if (next) {
+          await tx.overtimeRequest.update({ where: { id }, data: { currentLevel: next.level } });
+          await this.audit.record(tx, {
+            actorUserId: user.userId, action: 'OVERTIME_REQUEST_APPROVE_LEVEL', entityType: 'OvertimeRequest', entityId: id, ipAddress: user.ip,
+            before: { currentLevel: level, step }, after: { currentLevel: next.level, step: next.step, comment: note },
+          });
+          if (recipient) await this.notifications.notify(recipient.id, {
+            type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, title: `Overtime request approved at step ${level} of ${steps.length}`,
+            body: note ?? 'It now waits for the next approval.', data: { type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, ...base, nextLevel: next.level, nextStep: next.step },
+          }, tx);
+          await this.notifyApprovers(tx, id, req.employee, workDate, req.minutes, next.level, next.recipients);
+          return;
+        }
+      }
+
       const approvedMinutes = decision === 'APPROVED' ? approvedOvertimeMinutes(req.minutes, recorded) : null;
-      await tx.overtimeApproval.create({ data: { requestId: id, approverUserId: user.userId, level: 1, decision, comment: note } });
       await tx.overtimeRequest.update({ where: { id }, data: { status: decision, decidedAt: now, approvedMinutes } });
       await this.audit.record(tx, {
         actorUserId: user.userId, action: decision === 'APPROVED' ? 'OVERTIME_REQUEST_APPROVE' : 'OVERTIME_REQUEST_REJECT',
         entityType: 'OvertimeRequest', entityId: id, ipAddress: user.ip,
-        before: { status: 'PENDING', minutes: req.minutes },
-        after: { status: decision, approvedMinutes, recordedExtraMinutes: recorded, multiplier: req.multiplier?.toString() ?? null, comment: note },
+        before: { status: 'PENDING', minutes: req.minutes, currentLevel: level },
+        after: { status: decision, level, step, approvedMinutes, recordedExtraMinutes: recorded, multiplier: req.multiplier?.toString() ?? null, comment: note },
       });
-      const recipient = await tx.user.findFirst({ where: { employeeId: req.employeeId, isActive: true }, select: { id: true } });
       if (recipient) {
         const type = decision === 'APPROVED' ? REQUEST_NOTIFICATION_TYPES.APPROVED : REQUEST_NOTIFICATION_TYPES.REJECTED;
         await this.notifications.notify(recipient.id, {
           type, title: decision === 'APPROVED' ? 'Overtime request approved' : 'Overtime request rejected', body: note ?? '',
-          data: { type, kind: 'OVERTIME', requestId: id, workDate, minutes: req.minutes, approvedMinutes, comment: note },
+          data: { type, ...base, approvedMinutes },
         }, tx);
       }
     }, TX_OPTIONS);
     return this.get(id);
   }
 
+  routed(row: { employeeId: string; status: string; currentLevel: number; approvalSteps: unknown; employee: { departmentId: string | null }; approvals: { approverUserId: string; decision: string }[] }): RoutedRequest {
+    return {
+      employeeId: row.employeeId, departmentId: row.employee.departmentId,
+      step: row.status === 'PENDING' ? stepAt(parseSteps(row.approvalSteps), row.currentLevel) : null,
+      priorApproverIds: priorApprovers(row.approvals),
+    };
+  }
 
   // ───────────── Direct approval (no request from the employee) ─────────────
 
@@ -243,7 +299,7 @@ export class OvertimeService {
         isActive: true, deletedAt: null,
         ...(q.employeeId ? { id: q.employeeId } : {}),
         ...(q.departmentId ? { departmentId: q.departmentId } : {}),
-        ...(approver.companyWide ? {} : { departmentId: { in: approver.departmentIds.filter((d) => !q.departmentId || d === q.departmentId) } }),
+        ...(approver.companyWide || approver.superAdmin ? {} : { OR: [{ departmentId: { in: approver.departmentIds } }, { id: { in: approver.employeeIds } }] }),
       },
       select: EMPLOYEE_REF_SELECT,
       orderBy: { fullName: 'asc' },
@@ -288,6 +344,7 @@ export class OvertimeService {
     const policy = await this.defaultPolicy();
     const today = localDate(new Date());
     const note = input.comment?.trim() || null;
+    const chain = parseSteps(await this.settings.get('approvals.overtimeSteps'));
     const results: DirectOvertimeResultDto['results'] = [];
     for (const item of input.items) {
       try {
@@ -295,7 +352,7 @@ export class OvertimeService {
         const employee = await this.prisma.employee.findFirst({ where: { id: item.employeeId, deletedAt: null }, select: EMPLOYEE_REF_SELECT });
         if (!employee) throw AppError.notFound('Employee not found');
         if (employee.id === user.employeeId) throw AppError.forbidden('SELF_APPROVAL_FORBIDDEN', 'You cannot approve your own overtime');
-        if (!canDecideSingle(approver, { employeeId: employee.id, departmentId: employee.departmentId })) {
+        if (!approver.superAdmin && !coversEmployee(approver, { employeeId: employee.id, departmentId: employee.departmentId })) {
           throw AppError.forbidden('APPROVAL_NOT_ALLOWED', 'This employee is outside your approval scope');
         }
         if (workDate > addDays(today, MAX_DAYS_AHEAD) || workDate < addDays(today, -MAX_DAYS_BACK)) throw invalidField('workDate', 'workDate is out of range');
@@ -313,16 +370,19 @@ export class OvertimeService {
           const now = await lockEmployee(tx, employee.id);
           const existing = await tx.overtimeRequest.findFirst({ where: { employeeId: employee.id, workDate: dateOnly.toDb(workDate), status: { in: ['PENDING', 'APPROVED'] } } });
           if (existing?.status === 'APPROVED') throw AppError.conflict('DUPLICATE_REQUEST', 'Overtime is already approved for this day', { requestId: existing.id });
+          assertMayApproveDirectly(approver, existing ? parseSteps(existing.approvalSteps) : chain);
           const row = existing
             ? await tx.overtimeRequest.update({ where: { id: existing.id }, data: { status: 'APPROVED', decidedAt: now, approvedMinutes, compensation: input.compensation ?? existing.compensation } })
             : await tx.overtimeRequest.create({
                 data: {
                   employeeId: employee.id, workDate: dateOnly.toDb(workDate), minutes, kind, compensation: input.compensation ?? 'PAY',
                   isPreApproval: workDate >= today, reason: note ?? 'Approved by a manager without a request', policyId: policy.id,
-                  multiplier: multiplierFor(policy, kind), status: 'APPROVED', decidedAt: now, approvedMinutes,
+                  multiplier: multiplierFor(policy, kind), status: 'APPROVED', decidedAt: now, approvedMinutes, approvalSteps: [DIRECT_STEP],
                 },
               });
-          await tx.overtimeApproval.create({ data: { requestId: row.id, approverUserId: user.userId, level: 1, decision: 'APPROVED', comment: note } });
+          await tx.overtimeApproval.create({
+            data: { requestId: row.id, approverUserId: user.userId, level: existing?.currentLevel ?? 1, step: DIRECT_STEP, decision: 'APPROVED', comment: note },
+          });
           await this.audit.record(tx, {
             actorUserId: user.userId, action: existing ? 'OVERTIME_REQUEST_APPROVE' : 'OVERTIME_DIRECT_APPROVE', entityType: 'OvertimeRequest', entityId: row.id,
             ipAddress: user.ip,
@@ -346,7 +406,7 @@ export class OvertimeService {
   }
 
   canAct(approver: Approver | null, row: OvertimeRow): boolean {
-    return approver !== null && row.status === 'PENDING' && canDecideSingle(approver, { employeeId: row.employeeId, departmentId: row.employee.departmentId });
+    return approver !== null && canDecideStep(approver, this.routed(row));
   }
 
   // ───────────── Reads ─────────────
@@ -393,7 +453,10 @@ export class OvertimeService {
         estimate: { baseMinutes, multiplier, compensatedMinutes: compensatedMinutes(baseMinutes, multiplier) },
         createdAt: r.createdAt.toISOString(),
         decidedAt: r.decidedAt?.toISOString() ?? null,
+        currentLevel: r.currentLevel,
+        approvalSteps: parseSteps(r.approvalSteps),
         approvals: steps.get(r.id) ?? [],
+        skippedLevels: skippedLevels(r.status, r.currentLevel, parseSteps(r.approvalSteps).length, r.approvals),
       };
     });
   }

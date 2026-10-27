@@ -104,7 +104,7 @@ describe('cancelling started leave', () => {
 });
 
 describe('confidential leave seen by a manager', () => {
-  it('hides the rejection reason, the level count and the approval steps', async () => {
+  it('hides the rejection reason, the approval chain and the approval steps', async () => {
     const past = pastWorkday(3);
     const req = (await people.http.emp.post('/api/v1/leave/requests').send({
       leaveTypeId: catalog.sick.id, mode: 'FULL_DAY', startDate: past, endDate: past, reason: 'Clinic visit',
@@ -115,13 +115,13 @@ describe('confidential leave seen by a manager', () => {
     const asMgr = await people.http.mgr.get(`/api/v1/leave/requests/${req.id}`);
     expect(asMgr.status).toBe(200);
     expect(asMgr.body).toMatchObject({
-      confidential: true, leaveType: null, reason: null, rejectionReason: null, approvalLevels: null, approvals: [], documents: [], status: 'REJECTED',
+      confidential: true, leaveType: null, reason: null, rejectionReason: null, approvalSteps: null, approvals: [], skippedLevels: [], documents: [], status: 'REJECTED',
     });
 
     const asHr = await people.http.hr.get(`/api/v1/leave/requests/${req.id}`);
-    expect(asHr.body).toMatchObject({ confidential: false, rejectionReason: 'Sick note missing', approvalLevels: 1 });
+    expect(asHr.body).toMatchObject({ confidential: false, rejectionReason: 'Sick note missing', approvalSteps: ['MANAGER', 'ANY_APPROVER'], skippedLevels: [1] });
     const asOwner = await people.http.emp.get(`/api/v1/leave/requests/${req.id}`);
-    expect(asOwner.body).toMatchObject({ confidential: false, rejectionReason: 'Sick note missing', approvalLevels: 1 });
+    expect(asOwner.body).toMatchObject({ confidential: false, rejectionReason: 'Sick note missing', approvalSteps: ['MANAGER', 'ANY_APPROVER'], skippedLevels: [1] });
   });
 });
 

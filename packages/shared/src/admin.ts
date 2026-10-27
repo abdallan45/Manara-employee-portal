@@ -7,8 +7,20 @@ export interface DepartmentDto {
 }
 
 export interface RoleDto {
-  id: string; key: string; name: string; description: string | null; isSystem: boolean; permissions: string[];
+  id: string; key: string; name: string; nameAr: string | null; description: string | null; isSystem: boolean; permissions: string[];
+  /** Active users holding the role. */
+  userCount: number;
 }
+
+/** POST /roles (roles.manage). The key is fixed once created (approval chains refer to it). */
+export interface CreateRoleInput {
+  key: string; name: string; nameAr?: string | null; description?: string | null; permissions: string[];
+}
+/** PATCH /roles/:id. SUPER_ADMIN keeps every permission; system roles keep their key. */
+export type UpdateRoleInput = Partial<Omit<CreateRoleInput, 'key'>>;
+
+/** A user who approves for, and sees, an employee (project manager / supervisor). */
+export interface SupervisorRef { userId: string; username: string; name: string | null; nameAr: string | null }
 
 export interface EmployeeDto {
   id: string;
@@ -23,6 +35,12 @@ export interface EmployeeDto {
   departmentNameAr: string | null;
   managerId: string | null;
   hireDate: string | null;
+  /** Personal daily requirement in minutes (break included); null = the company default. */
+  dailyRequiredMinutes: number | null;
+  /** Personal break allowance inside that requirement; null = the company default. */
+  includedBreakMinutes: number | null;
+  /** Users who approve this employee's requests and see their data (in addition to department managers). */
+  supervisors: SupervisorRef[];
   isActive: boolean;
   createdAt: string;
   user: { id: string; username: string; isActive: boolean; roles: { key: string; departmentId: string | null }[]; lastLoginAt: string | null } | null;
@@ -38,6 +56,10 @@ export interface CreateEmployeeInput {
   departmentId?: string | null;
   managerId?: string | null;
   hireDate?: string; // YYYY-MM-DD
+  dailyRequiredMinutes?: number | null;
+  includedBreakMinutes?: number | null;
+  /** User ids of the employee's supervisors (project managers); replaces the list on update. */
+  supervisorUserIds?: string[];
   username: string;
   password: string;
   /** Role keys; defaults to ['EMPLOYEE']. */
@@ -52,7 +74,11 @@ export interface ScheduleDayDto { weekday: number; isWorkday: boolean; startMinu
 export interface ScheduleDto {
   id: string; name: string; type: 'FIXED' | 'FLEXIBLE'; weeklyRequiredMinutes: number; graceMinutes: number;
   coreStartMinute: number | null; coreEndMinute: number | null; isDefault: boolean; days: ScheduleDayDto[];
-  /** Break time that is part of the working day; only breaks beyond it are deducted from work time. */
+  /**
+   * Legacy, no longer used by the calculations: the daily requirement and break allowance come from the
+   * employee (dailyRequiredMinutes / includedBreakMinutes) or the company defaults in settings. Schedules
+   * decide which days are workdays and the start/end times (lateness, early departure).
+   */
   includedBreakMinutes: number;
 }
 
@@ -79,6 +105,13 @@ export const SETTING_DEFAULTS = {
   'attendance.maxLocationAccuracyMeters': 150,
   /** An open session older than this is treated as a missing check-out. */
   'attendance.maxOpenSessionHours': 18,
+  /** Default time an employee must spend at work per workday, minutes, break included (9 h). */
+  'attendance.dailyRequiredMinutes': 540,
+  /** Default break inside that time, minutes: counted as work whether taken or not; only longer breaks are deducted. */
+  'attendance.includedBreakMinutes': 60,
+  /** Approval chains for overtime and corrections (leave types have their own): 'MANAGER' or role keys, in order. */
+  'approvals.overtimeSteps': ['MANAGER'] as string[],
+  'approvals.correctionSteps': ['MANAGER'] as string[],
   'auth.maxFailedLogins': 5,
   'auth.lockoutMinutes': 15,
   'auth.sessionHours': 12,
@@ -96,6 +129,8 @@ export type SettingKey = keyof typeof SETTING_DEFAULTS;
 /** Allowed integer ranges (inclusive) of the numeric settings; the API validates with the same values. */
 export const SETTING_RANGES = {
   'attendance.maxOpenSessionHours': { min: 1, max: 48 },
+  'attendance.dailyRequiredMinutes': { min: 30, max: 1440 },
+  'attendance.includedBreakMinutes': { min: 0, max: 240 },
   'attendance.maxLocationAccuracyMeters': { min: 10, max: 2000 },
   'auth.maxFailedLogins': { min: 3, max: 50 },
   'auth.lockoutMinutes': { min: 1, max: 1440 },

@@ -584,7 +584,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Top bar */}
-          <header className="bg-background/70 sticky top-0 z-30 border-b border-tint/[0.05] backdrop-blur-xl print:hidden">
+          <header className="bg-background/70 pt-safe sticky top-0 z-30 border-b border-tint/[0.05] backdrop-blur-xl print:hidden">
             <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
               <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setDrawerOpen(true)} aria-label={t.nav.openMenu}>
                 <Menu aria-hidden />
@@ -690,7 +690,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Mobile drawer: the same grouped menu */}
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
-          <SheetContent side={dir === 'rtl' ? 'right' : 'left'} className="w-[85%] max-w-xs p-0">
+          <SheetContent
+            side={dir === 'rtl' ? 'right' : 'left'}
+            className="w-[85%] max-w-xs p-0"
+            style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
             <SheetHeader className="flex-row items-center gap-3">
               <BrandMark />
               <div>

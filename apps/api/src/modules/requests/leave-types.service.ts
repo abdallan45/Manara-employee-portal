@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type LeaveType } from '@prisma/client';
-import type { CreateLeaveTypeInput, LeaveTypeDto, UpdateLeaveTypeInput } from '@workforce/shared';
+import { MANAGER_STEP, type CreateLeaveTypeInput, type LeaveTypeDto, type UpdateLeaveTypeInput } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { leaveTypeToDto } from './leave.service';
-import { invalidField } from './request-common';
+import { assertValidChain, invalidField } from './request-common';
 
 function mapConflict(e: unknown): never {
   if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw AppError.conflict('CONFLICT', 'A leave type with this code already exists');
@@ -48,7 +48,8 @@ export class LeaveTypesService {
       code: body.code, name: body.name.trim(), nameAr: blankToNull(body.nameAr) ?? null, isPaid: body.isPaid ?? true,
       unit: body.unit, accrual: body.accrual,
       annualEntitlementMinutes: body.annualEntitlementMinutes ?? 0, carryoverMaxMinutes: body.carryoverMaxMinutes ?? 0,
-      requiresAttachment: body.requiresAttachment ?? false, approvalLevels: body.approvalLevels ?? 1,
+      requiresAttachment: body.requiresAttachment ?? false,
+      approvalSteps: await assertValidChain(this.prisma, body.approvalSteps ?? [MANAGER_STEP], 'approvalSteps'),
       isSensitive: body.isSensitive ?? false, isRemoteWork: body.isRemoteWork ?? false, isActive: body.isActive ?? true,
     };
     if (!data.name) throw invalidField('name', 'name must not be empty');
@@ -65,7 +66,9 @@ export class LeaveTypesService {
     const data: Prisma.LeaveTypeUpdateInput = {
       name: body.name?.trim(), nameAr: blankToNull(body.nameAr), isPaid: body.isPaid, unit: body.unit, accrual: body.accrual,
       annualEntitlementMinutes: body.annualEntitlementMinutes, carryoverMaxMinutes: body.carryoverMaxMinutes,
-      requiresAttachment: body.requiresAttachment, approvalLevels: body.approvalLevels, isSensitive: body.isSensitive, isRemoteWork: body.isRemoteWork, isActive: body.isActive,
+      requiresAttachment: body.requiresAttachment,
+      approvalSteps: body.approvalSteps === undefined ? undefined : await assertValidChain(this.prisma, body.approvalSteps, 'approvalSteps'),
+      isSensitive: body.isSensitive, isRemoteWork: body.isRemoteWork, isActive: body.isActive,
     };
     if (data.name === '') throw invalidField('name', 'name must not be empty');
     return this.prisma.$transaction(async (tx) => {

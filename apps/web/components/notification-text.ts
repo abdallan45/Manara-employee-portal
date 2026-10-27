@@ -3,6 +3,7 @@
 import { AlarmClockOff, Bell, CircleCheck, CircleX, ClipboardCheck, Coffee, type LucideIcon } from 'lucide-react';
 import { NOTIFICATION_TYPES, REQUEST_NOTIFICATION_TYPES, type NotificationDto, type RequestKind } from '@workforce/shared';
 
+import { useStepLabel } from '@/components/approval-chain';
 import { useAuth } from '@/lib/auth';
 import { formatMinutes, formatNumber, formatWorkDate, localized } from '@/lib/format';
 import { fmt } from '@/lib/i18n/dictionaries';
@@ -42,6 +43,7 @@ export function useNotificationText(): (n: NotificationDto) => NotificationText 
   const { user } = useAuth();
   const { isVisible } = usePortal();
   const types = t.notifications.types;
+  const stepLabel = useStepLabel();
 
   /** Keeps a link only when its page is visible in the employee portal (admin pages are not portal pages). */
   const visible = (href: string | undefined): string | undefined => {
@@ -117,6 +119,18 @@ export function useNotificationText(): (n: NotificationDto) => NotificationText 
     if (n.type === REQUEST_NOTIFICATION_TYPES.APPROVED && d.direct === true) {
       const x = types.ATTENDANCE_CORRECTED;
       return { title: x.title, body: comment ?? x.body, icon: CircleCheck, color: 'var(--status-working)', href: visible('/me/corrections') };
+    }
+    if (n.type === REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED && num(d.level) !== undefined && num(d.totalLevels) !== undefined) {
+      // A step of a longer chain was approved; the request moves on to the next step.
+      const x = t.approvalChains.levelApproved;
+      const next = str(d.nextStep);
+      return {
+        title: fmt(x.title, { ...vars, level: formatNumber(num(d.level)!, locale), levels: formatNumber(num(d.totalLevels)!, locale) }),
+        body: comment ?? (next ? fmt(x.body, { who: stepLabel(next) }) : ''),
+        icon: CircleCheck,
+        color: 'var(--status-working)',
+        href: visible(ownRequestHref(kind, requestId)),
+      };
     }
     if (n.type === REQUEST_NOTIFICATION_TYPES.APPROVED || n.type === REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED) {
       const x = n.type === REQUEST_NOTIFICATION_TYPES.APPROVED ? types.REQUEST_APPROVED : types.REQUEST_LEVEL_APPROVED;

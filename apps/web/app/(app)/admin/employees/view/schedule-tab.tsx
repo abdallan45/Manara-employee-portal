@@ -36,6 +36,7 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
   const { t, locale, units } = useI18n();
   const { can } = useAuth();
   const s = t.employeeHub.schedule;
+  const w = t.adminWorkflows.schedules;
   const canManage = can(PERMISSIONS.SCHEDULES_MANAGE);
   const today = todayInAmman();
   const [assigning, setAssigning] = useState(false);
@@ -62,7 +63,6 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
   const groups: Group[] = ['active', 'upcoming', 'ended'];
   const byGroup = (g: Group) => own.filter((a) => groupOf(a, today) === g).sort((x, y) => y.validFrom.localeCompare(x.validFrom));
   const current = schedule.data;
-  const currentDto = current?.scheduleId ? schedules.data?.find((x) => x.id === current.scheduleId) : undefined;
   const currentLabel = current ? `${current.scheduleName} (${t.employeeHub.scheduleSource[current.source]})` : undefined;
   const department = localized(locale, employee.departmentName, employee.departmentNameAr);
   const sourceHelp =
@@ -97,9 +97,12 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
                     {sourceHelp && <HelpTip text={sourceHelp} />}
                   </p>
                   {sourceHelp && <p className="sr-only">{sourceHelp}</p>}
-                  {currentDto && (
-                    <p className="text-muted-foreground text-sm">{fmt(t.schedules.weeklyTotal, { duration: formatMinutes(currentDto.weeklyRequiredMinutes, units) })}</p>
-                  )}
+                  <p className="text-muted-foreground text-sm">
+                    {employee.dailyRequiredMinutes != null
+                      ? fmt(w.hoursOwn, { duration: formatMinutes(employee.dailyRequiredMinutes, units) })
+                      : w.hoursDefault}
+                    {employee.includedBreakMinutes != null && ` · ${fmt(w.breakOwn, { duration: formatMinutes(employee.includedBreakMinutes, units) })}`}
+                  </p>
                   {current.source === 'DEPARTMENT' && department && (
                     <p className="text-muted-foreground text-sm">
                       <bdi>{department}</bdi>

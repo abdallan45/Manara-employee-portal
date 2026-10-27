@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { AttendanceState, DashboardSummary, DayMetrics, LiveAttendanceRow, Paginated } from '@workforce/shared';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
-import { attendanceScope } from '../../common/scope';
+import { attendanceScope, employeeScopeWhere } from '../../common/scope';
 import { addDays, localDate } from '../../common/time';
 import { AttendanceMetricsService } from '../attendance/attendance-metrics.service';
 import { assertDate, eachDate } from '../attendance/date-range';
@@ -36,7 +36,7 @@ export class DashboardService {
   private async employeesInScope(user: AuthUser) {
     const scope = attendanceScope(user);
     return this.prisma.employee.findMany({
-      where: { isActive: true, deletedAt: null, ...(scope === null ? {} : { departmentId: { in: scope } }) },
+      where: { isActive: true, deletedAt: null, ...employeeScopeWhere(scope) },
       select: {
         id: true, employeeCode: true, fullName: true, fullNameAr: true, departmentId: true, locationId: true,
         department: { select: { name: true, nameAr: true } },

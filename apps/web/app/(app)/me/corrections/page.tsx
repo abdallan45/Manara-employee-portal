@@ -13,7 +13,8 @@ import { CorrectionForm, type CorrectionDraft, type CorrectionFormState } from '
 import { DataTable, type Column } from '@/components/data-table';
 import { TimeRange } from '@/components/duration';
 import { PageHeader } from '@/components/page-header';
-import { RejectedReason, RequestStatusBadge, useWaitingFor } from '@/components/request-bits';
+import { ChainDisclosure, useChainWaitingFor } from '@/components/approval-chain';
+import { RejectedReason, RequestStatusBadge } from '@/components/request-bits';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,7 +58,7 @@ function Corrections() {
   const [cancelling, setCancelling] = useState<CorrectionRequestDto | null>(null);
   const sessions = useApi<CorrectableSessionDto[]>('/corrections/me/sessions');
   const requests = useApi<CorrectionRequestDto[]>('/corrections/me/requests');
-  const waitingFor = useWaitingFor();
+  const waitingFor = useChainWaitingFor();
 
   const open = url.new === '1';
 
@@ -125,12 +126,13 @@ function Corrections() {
     { id: 'proposed', header: t.corrections.proposed, cell: (r) => <span className="tabular">{proposed(r)}</span> },
     { id: 'status', header: t.common.status, cell: (r) => (
       <div className="space-y-1">
-        <RequestStatusBadge status={r.status} waitingFor={waitingFor({ status: r.status })} />
+        <RequestStatusBadge status={r.status} waitingFor={waitingFor(r)} />
         {r.status === 'REJECTED' ? (
           <RejectedReason reason={r.decisionComment} className="max-w-56" />
         ) : (
           r.decisionComment && <p className="text-muted-foreground max-w-56 text-xs" dir="auto">{r.decisionComment}</p>
         )}
+        <ChainDisclosure request={r} className="max-w-64" />
       </div>
     ) },
     {
@@ -220,7 +222,7 @@ function Corrections() {
               <div className="min-w-0 space-y-1">
                 <div className="flex items-start justify-between gap-3">
                   <p className="font-medium">{s.corrections.kinds[r.kind]}</p>
-                  <RequestStatusBadge status={r.status} waitingFor={waitingFor({ status: r.status })} className="items-end text-end" />
+                  <RequestStatusBadge status={r.status} waitingFor={waitingFor(r)} className="items-end text-end" />
                 </div>
                 <p className="text-muted-foreground text-xs">{t.corrections.proposed}: <span className="tabular">{proposed(r)}</span></p>
                 {r.status === 'REJECTED' ? (
@@ -228,6 +230,7 @@ function Corrections() {
                 ) : (
                   r.decisionComment && <p className="text-muted-foreground text-xs" dir="auto">{r.decisionComment}</p>
                 )}
+                <ChainDisclosure request={r} />
               </div>
             )}
             mobileActions={(r) =>

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type RequestStatus, type WorkSession } from '@prisma/client';
 import {
-  PERMISSIONS, REQUEST_NOTIFICATION_TYPES,
+  DIRECT_STEP, PERMISSIONS, REQUEST_NOTIFICATION_TYPES,
   type CorrectableSessionDto, type CorrectionKind, type CorrectionRequestDto, type CreateCorrectionInput,
 } from '@workforce/shared';
 import { randomUUID } from 'node:crypto';
@@ -12,10 +12,11 @@ import { addDays, dateOnly, localDate } from '../../common/time';
 import { AuditService } from '../audit/audit.service';
 import { inetOrZero } from '../../common/ip';
 import { NotificationService } from '../notifications/notification.service';
-import { approverFor, canDecideSingle, type Approver } from './approval-routing';
+import { SettingsService } from '../settings/settings.service';
+import { approverFor, canDecideStep, parseSteps, skippedLevels, stepAt, type Approver, type RoutedRequest } from './approval-routing';
 import {
-  ApproverDirectory, assertMayDecide, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending, parseInstant, requireEmployee,
-  toEmployeeRef, TX_OPTIONS,
+  ApproverDirectory, approvalStepsByRequest, assertMayDecide, assertStepAllowed, EMPLOYEE_REF_SELECT, invalidField, lockEmployee, notPending,
+  parseInstant, priorApprovers, requireEmployee, toEmployeeRef, TX_OPTIONS,
 } from './request-common';
 
 const P = PERMISSIONS;
@@ -23,7 +24,7 @@ const HOUR = 3_600_000;
 const MAX_SESSION_HOURS = 24;
 const CORRECTABLE_DAYS = 31;
 
-const CORRECTION_INCLUDE = { employee: { select: EMPLOYEE_REF_SELECT } } satisfies Prisma.AttendanceCorrectionInclude;
+const CORRECTION_INCLUDE = { employee: { select: EMPLOYEE_REF_SELECT }, approvals: true } satisfies Prisma.AttendanceCorrectionInclude;
 export type CorrectionRow = Prisma.AttendanceCorrectionGetPayload<{ include: typeof CORRECTION_INCLUDE }>;
 
 interface Proposal {
@@ -47,6 +48,7 @@ export class CorrectionsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
     private readonly directory: ApproverDirectory,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -133,10 +135,12 @@ export class CorrectionsService {
         select: { id: true },
       });
       if (duplicate) throw AppError.conflict('DUPLICATE_REQUEST', 'A correction for this is already waiting for approval', { requestId: duplicate.id });
+      const chain = await this.directory.start(P.CORRECTIONS_APPROVE, parseSteps(await this.settings.get('approvals.correctionSteps')), employee, {}, tx);
       const row = await tx.attendanceCorrection.create({
         data: {
           employeeId, requestedById: user.userId, kind: p.kind, eventType: p.eventType, proposedTime: p.proposedTime,
           proposedEndTime: p.proposedEndTime, workSessionId: p.workSessionId, reason: input.reason.trim(),
+          currentLevel: chain.level, approvalSteps: chain.steps,
         },
       });
       await this.audit.record(tx, {
@@ -144,22 +148,28 @@ export class CorrectionsService {
         after: {
           employeeId, kind: p.kind, eventType: p.eventType, workSessionId: p.workSessionId,
           proposedTime: p.proposedTime.toISOString(), proposedEndTime: p.proposedEndTime?.toISOString() ?? null,
+          currentLevel: chain.level, approvalSteps: chain.steps,
         },
       });
-      let recipients = await this.directory.team(P.CORRECTIONS_APPROVE, employee.departmentId, employeeId, tx);
-      if (!recipients.length) recipients = await this.directory.companyWide(P.CORRECTIONS_APPROVE, employeeId, tx);
-      await this.notifications.notifyMany(recipients, {
-        type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, title: 'Attendance correction waiting for approval',
-        body: `${employee.fullName} (${employee.employeeCode}) asked for an attendance correction.`,
-        data: {
-          type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, kind: 'CORRECTION', requestId: row.id, correctionKind: p.kind,
-          employeeName: employee.fullName, employeeNameAr: employee.fullNameAr, employeeCode: employee.employeeCode,
-        },
-        dedupeKey: `correction-pending:${row.id}`,
-      }, tx);
+      await this.notifyApprovers(tx, row.id, employee, p.kind, chain.level, chain.recipients);
       return row.id;
     }, TX_OPTIONS);
     return this.get(id);
+  }
+
+  private async notifyApprovers(
+    tx: Prisma.TransactionClient, requestId: string, employee: { fullName: string; fullNameAr: string | null; employeeCode: string },
+    correctionKind: string, level: number, recipients: string[],
+  ) {
+    await this.notifications.notifyMany(recipients, {
+      type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, title: 'Attendance correction waiting for approval',
+      body: `${employee.fullName} (${employee.employeeCode}) asked for an attendance correction.`,
+      data: {
+        type: REQUEST_NOTIFICATION_TYPES.PENDING_APPROVAL, kind: 'CORRECTION', requestId, correctionKind, level,
+        employeeName: employee.fullName, employeeNameAr: employee.fullNameAr, employeeCode: employee.employeeCode,
+      },
+      dedupeKey: level === 1 ? `correction-pending:${requestId}` : `correction-pending:${requestId}:${level}`,
+    }, tx);
   }
 
   async cancel(user: AuthUser, id: string): Promise<CorrectionRequestDto> {
@@ -178,22 +188,50 @@ export class CorrectionsService {
     return this.get(id);
   }
 
+  /**
+   * Approve or reject the step the request waits at. Only the last approval applies the correction
+   * (validated again against the records at that moment); earlier ones move it to the next step.
+   */
   async decide(user: AuthUser, id: string, decision: 'APPROVED' | 'REJECTED', comment: string | undefined): Promise<CorrectionRequestDto> {
     const approver = approverFor(user, P.CORRECTIONS_APPROVE);
     const note = comment?.trim() || null;
     if (decision === 'REJECTED' && !note) throw invalidField('comment', 'A reason is required to reject a request');
     const existing = await this.prisma.attendanceCorrection.findUnique({ where: { id }, include: CORRECTION_INCLUDE });
     if (!existing) throw AppError.notFound('Correction request not found');
-    const routed = { employeeId: existing.employeeId, departmentId: existing.employee.departmentId };
-    assertMayDecide(approver, routed.employeeId, routed.departmentId, approver !== null && canDecideSingle(approver, routed));
+    assertMayDecide(approver, this.routed(existing));
 
     await this.prisma.$transaction(async (tx) => {
       const now = await lockEmployee(tx, existing.employeeId);
-      const req = await tx.attendanceCorrection.findUniqueOrThrow({ where: { id } });
+      const req = await tx.attendanceCorrection.findUniqueOrThrow({ where: { id }, include: CORRECTION_INCLUDE });
       if (req.status !== 'PENDING') throw notPending(req.status);
+      const routed = this.routed(req);
+      assertStepAllowed(approver, routed, req.currentLevel);
+      const steps = parseSteps(req.approvalSteps);
+      const level = req.currentLevel;
+      const step = routed.step!;
+      await tx.correctionApproval.create({ data: { requestId: id, approverUserId: user.userId, level, step, decision, comment: note } });
+      const recipient = await tx.user.findFirst({ where: { employeeId: req.employeeId, isActive: true }, select: { id: true } });
+      const base = { kind: 'CORRECTION', requestId: id, correctionKind: req.kind, level, step, totalLevels: steps.length, comment: note };
+
+      if (decision === 'APPROVED') {
+        const next = await this.directory.nextPosition(P.CORRECTIONS_APPROVE, steps, level + 1, req.employee, [...routed.priorApproverIds, user.userId], {}, tx);
+        if (next) {
+          await tx.attendanceCorrection.update({ where: { id }, data: { currentLevel: next.level } });
+          await this.audit.record(tx, {
+            actorUserId: user.userId, action: 'CORRECTION_REQUEST_APPROVE_LEVEL', entityType: 'AttendanceCorrection', entityId: id, ipAddress: user.ip,
+            before: { currentLevel: level, step }, after: { currentLevel: next.level, step: next.step, comment: note },
+          });
+          if (recipient) await this.notifications.notify(recipient.id, {
+            type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, title: `Attendance correction approved at step ${level} of ${steps.length}`,
+            body: note ?? 'It now waits for the next approval.', data: { type: REQUEST_NOTIFICATION_TYPES.LEVEL_APPROVED, ...base, nextLevel: next.level, nextStep: next.step },
+          }, tx);
+          await this.notifyApprovers(tx, id, req.employee, req.kind, next.level, next.recipients);
+          return;
+        }
+      }
+
       let appliedEventId: string | null = null;
       let workSessionId = req.workSessionId;
-
       if (decision === 'APPROVED') {
         const p: Proposal = {
           kind: req.kind as CorrectionKind, eventType: req.eventType as Proposal['eventType'], proposedTime: req.proposedTime,
@@ -212,18 +250,25 @@ export class CorrectionsService {
       await this.audit.record(tx, {
         actorUserId: user.userId, action: decision === 'APPROVED' ? 'CORRECTION_REQUEST_APPROVE' : 'CORRECTION_REQUEST_REJECT',
         entityType: 'AttendanceCorrection', entityId: id, ipAddress: user.ip,
-        before: { status: 'PENDING' }, after: { status: decision, appliedEventId, workSessionId, comment: note },
+        before: { status: 'PENDING', currentLevel: level }, after: { status: decision, level, step, appliedEventId, workSessionId, comment: note },
       });
-      const recipient = await tx.user.findFirst({ where: { employeeId: req.employeeId, isActive: true }, select: { id: true } });
       if (recipient) {
         const type = decision === 'APPROVED' ? REQUEST_NOTIFICATION_TYPES.APPROVED : REQUEST_NOTIFICATION_TYPES.REJECTED;
         await this.notifications.notify(recipient.id, {
           type, title: decision === 'APPROVED' ? 'Attendance correction approved' : 'Attendance correction rejected', body: note ?? '',
-          data: { type, kind: 'CORRECTION', requestId: id, correctionKind: req.kind, comment: note },
+          data: { type, ...base },
         }, tx);
       }
     }, TX_OPTIONS);
     return this.get(id);
+  }
+
+  routed(row: CorrectionRow): RoutedRequest {
+    return {
+      employeeId: row.employeeId, departmentId: row.employee.departmentId,
+      step: row.status === 'PENDING' ? stepAt(parseSteps(row.approvalSteps), row.currentLevel) : null,
+      priorApproverIds: priorApprovers(row.approvals),
+    };
   }
 
   /** HR corrects any employee's attendance directly (attendance.correct with company-wide access), never their own. */
@@ -258,8 +303,11 @@ export class CorrectionsService {
         data: {
           id: correctionId, employeeId, requestedById: user.userId, kind: p.kind, eventType: p.eventType, proposedTime: p.proposedTime,
           proposedEndTime: p.proposedEndTime, workSessionId: applied.workSessionId, reason,
-          status: 'APPROVED', decidedById: user.userId, decidedAt: now, appliedEventId: applied.eventId,
+          status: 'APPROVED', decidedById: user.userId, decidedAt: now, appliedEventId: applied.eventId, approvalSteps: [DIRECT_STEP],
         },
+      });
+      await tx.correctionApproval.create({
+        data: { requestId: correctionId, approverUserId: user.userId, level: 1, step: DIRECT_STEP, decision: 'APPROVED', comment: reason },
       });
       await this.audit.record(tx, {
         actorUserId: user.userId, action: 'CORRECTION_DIRECT_APPLY', entityType: 'AttendanceCorrection', entityId: correctionId, ipAddress: user.ip,
@@ -338,7 +386,7 @@ export class CorrectionsService {
   }
 
   canAct(approver: Approver | null, row: CorrectionRow): boolean {
-    return approver !== null && row.status === 'PENDING' && canDecideSingle(approver, { employeeId: row.employeeId, departmentId: row.employee.departmentId });
+    return approver !== null && canDecideStep(approver, this.routed(row));
   }
 
   // ───────────── Reads ─────────────
@@ -400,9 +448,10 @@ export class CorrectionsService {
   async toDtos(db: Db, rows: CorrectionRow[]): Promise<CorrectionRequestDto[]> {
     const sessionIds = [...new Set(rows.map((r) => r.workSessionId).filter((x): x is string => x !== null))];
     const deciderIds = [...new Set(rows.map((r) => r.decidedById).filter((x): x is string => x !== null))];
-    const [sessions, deciders] = await Promise.all([
+    const [sessions, deciders, steps] = await Promise.all([
       sessionIds.length ? db.workSession.findMany({ where: { id: { in: sessionIds } } }) : Promise.resolve([]),
       deciderIds.length ? db.user.findMany({ where: { id: { in: deciderIds } }, select: { id: true, username: true } }) : Promise.resolve([]),
+      approvalStepsByRequest(db, rows.flatMap((r) => r.approvals)),
     ]);
     const sessionById = new Map(sessions.map((s) => [s.id, s]));
     const deciderById = new Map(deciders.map((u) => [u.id, u]));
@@ -427,6 +476,10 @@ export class CorrectionsService {
         decidedAt: r.decidedAt?.toISOString() ?? null,
         appliedEventId: r.appliedEventId,
         createdAt: r.createdAt.toISOString(),
+        currentLevel: r.currentLevel,
+        approvalSteps: parseSteps(r.approvalSteps),
+        approvals: steps.get(r.id) ?? [],
+        skippedLevels: skippedLevels(r.status, r.currentLevel, parseSteps(r.approvalSteps).length, r.approvals),
       };
     });
   }

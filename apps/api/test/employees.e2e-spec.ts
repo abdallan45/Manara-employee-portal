@@ -226,7 +226,7 @@ describe('employees & departments (e2e)', () => {
   it('lists roles for users with EMPLOYEES_READ', async () => {
     const res = await as(app, hr).get('/api/v1/roles');
     expect(res.status).toBe(200);
-    expect(res.body.map((r: { key: string }) => r.key).sort()).toEqual(['DEPARTMENT_MANAGER', 'EMPLOYEE', 'HR_ADMIN', 'SUPER_ADMIN']);
+    expect(res.body.map((r: { key: string }) => r.key).sort()).toEqual(['DEPARTMENT_MANAGER', 'EMPLOYEE', 'GENERAL_MANAGER', 'HR_ADMIN', 'PROJECT_MANAGER', 'SUPER_ADMIN']);
     const dev = await webLogin(app, 'dev');
     expect((await as(app, dev).get('/api/v1/roles')).status).toBe(403);
   });

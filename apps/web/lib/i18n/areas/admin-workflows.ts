@@ -143,6 +143,13 @@ export const en = {
     timeZone: 'Time zone',
     timeZoneHint: 'IANA name, for example Asia/Amman.',
     timeZoneInvalid: 'Enter a time zone such as Asia/Amman.',
+    hoursTitle: 'Working hours',
+    dailyHours: 'Default daily hours (break included)',
+    dailyHoursHint: 'Time an employee must spend at work on a working day, break included. Employees with their own hours keep them.',
+    dailyHoursInvalid: 'Enter hours as H:MM, from {min} to {max}.',
+    includedBreak: 'Default break inside the day',
+    includedBreakHint: 'Part of the daily hours: a break up to this long counts as work, taken or not. Only a longer break is deducted.',
+    hoursExample: 'Example: 9:00 with a 60 min break. Check in at 08:00 and the day is complete at 17:00, with or without a lunch hour.',
   },
 
   leaveTypes: {
@@ -159,6 +166,11 @@ export const en = {
 
   schedules: {
     copyDay: "Copy {day}'s hours to all working days",
+    hoursNote: 'Daily hours and break: from each employee or Settings → Company & sign-in.',
+    hoursHelp: 'A schedule sets the working days, start and end times and core hours. How many hours make a full day, and the break inside them, are set per employee or as the company default in Settings → Company & sign-in.',
+    hoursOwn: 'Daily hours: {duration} (this employee)',
+    hoursDefault: 'Daily hours: company default',
+    breakOwn: 'break inside the day: {duration}',
   },
 
   holidays: {
@@ -309,6 +321,13 @@ export const ar: typeof en = {
     timeZone: 'المنطقة الزمنية',
     timeZoneHint: 'اسم IANA، مثل Asia/Amman.',
     timeZoneInvalid: 'أدخل منطقة زمنية مثل Asia/Amman.',
+    hoursTitle: 'ساعات الدوام',
+    dailyHours: 'ساعات الدوام اليومية الافتراضية (شاملة الاستراحة)',
+    dailyHoursHint: 'الوقت الذي يجب أن يقضيه الموظف في العمل في يوم الدوام، شاملاً الاستراحة. الموظفون الذين لهم ساعات خاصة يحتفظون بها.',
+    dailyHoursInvalid: 'أدخل الساعات بالصيغة س:دد، من {min} إلى {max}.',
+    includedBreak: 'الاستراحة الافتراضية ضمن الدوام',
+    includedBreakHint: 'جزء من ساعات الدوام: الاستراحة حتى هذه المدة تُحسب عملاً سواء أُخذت أم لا. يُخصم فقط ما يزيد عليها.',
+    hoursExample: 'مثال: 9:00 مع استراحة 60 دقيقة. من يسجّل حضوره الساعة 08:00 يكتمل يومه الساعة 17:00، سواء أخذ ساعة الغداء أم لا.',
   },
 
   leaveTypes: {
@@ -325,6 +344,11 @@ export const ar: typeof en = {
 
   schedules: {
     copyDay: 'نسخ ساعات {day} إلى كل أيام العمل',
+    hoursNote: 'ساعات الدوام والاستراحة: من إعدادات كل موظف أو الإعدادات ← الشركة وتسجيل الدخول.',
+    hoursHelp: 'يحدّد الجدول أيام العمل ووقتي البداية والنهاية والساعات الأساسية. أمّا عدد ساعات اليوم الكامل والاستراحة ضمنها فتُحدَّد لكل موظف، أو كقيمة افتراضية للشركة في الإعدادات ← الشركة وتسجيل الدخول.',
+    hoursOwn: 'ساعات الدوام اليومية: {duration} (خاصة بهذا الموظف)',
+    hoursDefault: 'ساعات الدوام اليومية: الافتراضي للشركة',
+    breakOwn: 'الاستراحة ضمن الدوام: {duration}',
   },
 
   holidays: {

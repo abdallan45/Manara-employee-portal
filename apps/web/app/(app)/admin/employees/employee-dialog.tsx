@@ -2,15 +2,18 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import Link from 'next/link';
-import { KeyRound, Loader2 } from 'lucide-react';
+import { KeyRound, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  PERMISSIONS,
+  SETTING_DEFAULTS,
   SYSTEM_ROLES,
   type CreateEmployeeInput,
   type DepartmentDto,
   type EmployeeDto,
   type Paginated,
   type RoleDto,
+  type SettingDto,
   type UpdateEmployeeInput,
 } from '@workforce/shared';
 
@@ -24,7 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ApiError, api, fieldErrorsFrom } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { localized } from '@/lib/format';
+import { formatMinutes, localized, parseLocaleNumber } from '@/lib/format';
 import { fmt } from '@/lib/i18n/dictionaries';
 import { useI18n } from '@/lib/i18n/context';
 import { CHANGE_PASSWORD_PATH } from '@/lib/nav';
@@ -48,15 +51,31 @@ interface FormState {
   password: string;
   roleKeys: string[];
   managedDepartmentIds: string[];
+  supervisorUserIds: string[];
+  /** Personal daily hours (break included) and break minutes; empty = company default. */
+  dailyHours: string;
+  breakMinutes: string;
 }
 
 type FieldKey = keyof FormState;
 type Errors = Partial<Record<FieldKey, string>>;
 
 /** Fields in the order they appear (Personal, Job, Access): the first invalid one gets focus. */
-const FIELD_ORDER: FieldKey[] = ['fullName', 'fullNameAr', 'email', 'phone', 'employeeCode', 'jobTitle', 'departmentId', 'managerId', 'hireDate', 'username', 'password', 'roleKeys'];
+const FIELD_ORDER: FieldKey[] = ['fullName', 'fullNameAr', 'email', 'phone', 'employeeCode', 'jobTitle', 'departmentId', 'managerId', 'hireDate', 'dailyHours', 'breakMinutes', 'username', 'password', 'roleKeys', 'supervisorUserIds'];
 /** Roles that open company-wide HR access: adding one asks for confirmation first. */
-const PRIVILEGED: string[] = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.HR_ADMIN];
+const PRIVILEGED: string[] = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.HR_ADMIN, SYSTEM_ROLES.GENERAL_MANAGER];
+const APPROVE_PERMISSIONS: string[] = [PERMISSIONS.LEAVE_APPROVE, PERMISSIONS.OVERTIME_APPROVE, PERMISSIONS.CORRECTIONS_APPROVE];
+/** "7.5" hours -> 450 minutes; null when empty; NaN when not a number. */
+const hoursToMinutes = (v: string): number | null => {
+  if (!v.trim()) return null;
+  const n = parseLocaleNumber(v);
+  return n === null ? Number.NaN : Math.round(n * 60);
+};
+const minutesValue = (v: string): number | null => {
+  if (!v.trim()) return null;
+  const n = parseLocaleNumber(v);
+  return n === null || !Number.isInteger(n) ? Number.NaN : n;
+};
 
 const EMPTY: FormState = {
   employeeCode: '',
@@ -72,6 +91,9 @@ const EMPTY: FormState = {
   password: '',
   roleKeys: [SYSTEM_ROLES.EMPLOYEE],
   managedDepartmentIds: [],
+  supervisorUserIds: [],
+  dailyHours: '',
+  breakMinutes: '',
 };
 
 function fromEmployee(e: EmployeeDto): FormState {
@@ -90,6 +112,9 @@ function fromEmployee(e: EmployeeDto): FormState {
     password: '',
     roleKeys: Array.from(new Set(roles.map((r) => r.key))),
     managedDepartmentIds: roles.filter((r) => r.key === SYSTEM_ROLES.DEPARTMENT_MANAGER && r.departmentId).map((r) => r.departmentId as string),
+    supervisorUserIds: e.supervisors.map((s) => s.userId),
+    dailyHours: e.dailyRequiredMinutes === null ? '' : String(Math.round((e.dailyRequiredMinutes / 60) * 100) / 100),
+    breakMinutes: e.includedBreakMinutes === null ? '' : String(e.includedBreakMinutes),
   };
 }
 
@@ -162,8 +187,9 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   onCancel: () => void;
   onSaved: (e: EmployeeDto) => void;
 }) {
-  const { t, locale, errorMessage } = useI18n();
-  const { user: me } = useAuth();
+  const { t, locale, units, errorMessage } = useI18n();
+  const { user: me, can } = useAuth();
+  const c = t.approvalChains.employee;
   const f = t.employees.fields;
   const h = t.employeeHub.dialog;
   const sec = t.accountSecurity;
@@ -188,6 +214,14 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   const roles = useApi<RoleDto[]>('/roles');
   const departments = useApi<DepartmentDto[]>('/departments');
   const managers = useApi<Paginated<EmployeeDto>>('/employees', { status: 'active', page: 1, pageSize: 200 });
+  // Company defaults for the hours placeholders (readable with settings.manage; else the built-in defaults).
+  const settings = useApi<SettingDto[]>(can(PERMISSIONS.SETTINGS_MANAGE) ? '/settings' : null);
+  const settingOf = (key: 'attendance.dailyRequiredMinutes' | 'attendance.includedBreakMinutes'): number => {
+    const v = settings.data?.find((s) => s.key === key)?.value;
+    return typeof v === 'number' ? v : SETTING_DEFAULTS[key];
+  };
+  const defaultDaily = settingOf('attendance.dailyRequiredMinutes');
+  const defaultBreak = settingOf('attendance.includedBreakMinutes');
 
   const isManager = form.roleKeys.includes(SYSTEM_ROLES.DEPARTMENT_MANAGER);
   const managerOptions = useMemo(() => (managers.data?.items ?? []).filter((m) => m.id !== existing?.id), [managers.data, existing]);
@@ -200,7 +234,7 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
     setForm((s) => ({ ...s, [key]: value }));
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
   };
-  const toggle = (key: 'roleKeys' | 'managedDepartmentIds', value: string, on: boolean) =>
+  const toggle = (key: 'roleKeys' | 'managedDepartmentIds' | 'supervisorUserIds', value: string, on: boolean) =>
     set(key, on ? Array.from(new Set([...form[key], value])) : form[key].filter((v) => v !== value));
 
   const validate = (): Errors => {
@@ -212,13 +246,21 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
     if (!existing && !form.password) e.password = t.employees.required;
     else if (form.password && form.password.length < PASSWORD_MIN) e.password = t.employees.passwordTooShort;
     if (form.roleKeys.length === 0) e.roleKeys = t.employees.rolesRequired;
+    const daily = hoursToMinutes(form.dailyHours);
+    if (daily !== null && (Number.isNaN(daily) || daily < 30 || daily > 1440)) e.dailyHours = c.hoursRange;
+    const brk = minutesValue(form.breakMinutes);
+    if (brk !== null && (Number.isNaN(brk) || brk < 0 || brk > 240)) e.breakMinutes = c.breakRange;
     return e;
   };
 
   const idOf = (key: FieldKey) =>
     key === 'departmentId' ? 'emp-department' : key === 'managerId' ? 'emp-manager' : key === 'roleKeys' ? `role-${roles.data?.[0]?.key ?? ''}` : `emp-${key}`;
   const labelOf = (key: FieldKey): string =>
-    key === 'roleKeys' ? f.roles : key === 'password' && existing ? f.newPassword : ((f as Record<string, string>)[key] ?? key);
+    key === 'roleKeys' ? f.roles
+      : key === 'dailyHours' ? c.dailyHours
+        : key === 'breakMinutes' ? c.breakMinutes
+          : key === 'supervisorUserIds' ? c.supervisors
+            : key === 'password' && existing ? f.newPassword : ((f as Record<string, string>)[key] ?? key);
   const addsPrivileged = form.roleKeys.some((k) => PRIVILEGED.includes(k) && !initial.roleKeys.includes(k));
 
   const onSubmit = (ev: FormEvent) => {
@@ -252,6 +294,9 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
       username: form.username.trim().toLowerCase(),
       roleKeys: form.roleKeys,
       managedDepartmentIds: isManager ? form.managedDepartmentIds : [],
+      supervisorUserIds: form.supervisorUserIds,
+      dailyRequiredMinutes: hoursToMinutes(form.dailyHours),
+      includedBreakMinutes: minutesValue(form.breakMinutes),
     };
 
     setSaving(true);
@@ -299,7 +344,7 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
     }
   };
 
-  const text = (key: Exclude<FieldKey, 'roleKeys' | 'managedDepartmentIds' | 'departmentId' | 'managerId'>, label: string, opts: { optional?: boolean; required?: boolean; type?: string; ltr?: boolean; hint?: string; autoComplete?: string } = {}) => (
+  const text = (key: Exclude<FieldKey, 'roleKeys' | 'managedDepartmentIds' | 'supervisorUserIds' | 'departmentId' | 'managerId'>, label: string, opts: { optional?: boolean; required?: boolean; type?: string; ltr?: boolean; hint?: string; autoComplete?: string } = {}) => (
     <FormField id={`emp-${key}`} label={label} optional={opts.optional} required={opts.required} error={errors[key]} hint={opts.hint}>
       {({ id, describedBy, invalid, required }) => (
         <Input
@@ -318,6 +363,21 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   );
 
   const deptName = (d: DepartmentDto) => (locale === 'ar' && d.nameAr) || d.name;
+
+  // Supervisors: any active user except this employee's own login.
+  const approverRoles = new Set((roles.data ?? []).filter((r) => r.permissions.some((p) => APPROVE_PERMISSIONS.includes(p))).map((r) => r.key));
+  const candidates = (managers.data?.items ?? []).filter((m) => m.user?.isActive && m.user.id !== existing?.user?.id);
+  const supervisorLabel = (userId: string): string => {
+    const known = existing?.supervisors.find((s) => s.userId === userId);
+    if (known) return `${localized(locale, known.name, known.nameAr) || known.username} · ${known.username}`;
+    const m = candidates.find((x) => x.user?.id === userId);
+    return m ? `${localized(locale, m.fullName, m.fullNameAr)} · ${m.user!.username}` : userId;
+  };
+  const canApprove = (userId: string): boolean => {
+    const m = candidates.find((x) => x.user?.id === userId);
+    return !m || m.user!.roles.some((r) => approverRoles.has(r.key));
+  };
+  const hoursText = (minutes: number) => formatMinutes(minutes, units);
 
   return (
     <form onSubmit={onSubmit} className="grid gap-6" noValidate>
@@ -373,6 +433,42 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
       </fieldset>
 
       <fieldset className="grid gap-4 sm:grid-cols-2">
+        <legend className="text-brand-soft mb-3 text-xs font-semibold tracking-wider uppercase">{c.hours}</legend>
+        <FormField id="emp-dailyHours" label={c.dailyHours} optional error={errors.dailyHours} hint={`${c.dailyHoursHelp} ${fmt(c.companyDefault, { value: hoursText(defaultDaily) })}`}>
+          {({ id, describedBy, invalid }) => (
+            <Input
+              id={id}
+              inputMode="decimal"
+              dir="ltr"
+              className="tabular"
+              value={form.dailyHours}
+              onChange={(e) => set('dailyHours', e.target.value)}
+              placeholder={String(Math.round((defaultDaily / 60) * 100) / 100)}
+              aria-describedby={describedBy}
+              aria-invalid={invalid}
+              autoComplete="off"
+            />
+          )}
+        </FormField>
+        <FormField id="emp-breakMinutes" label={c.breakMinutes} optional error={errors.breakMinutes} hint={`${c.breakMinutesHelp} ${fmt(c.companyDefault, { value: hoursText(defaultBreak) })}`}>
+          {({ id, describedBy, invalid }) => (
+            <Input
+              id={id}
+              inputMode="numeric"
+              dir="ltr"
+              className="tabular"
+              value={form.breakMinutes}
+              onChange={(e) => set('breakMinutes', e.target.value)}
+              placeholder={String(defaultBreak)}
+              aria-describedby={describedBy}
+              aria-invalid={invalid}
+              autoComplete="off"
+            />
+          )}
+        </FormField>
+      </fieldset>
+
+      <fieldset className="grid gap-4 sm:grid-cols-2">
         <legend className="text-brand-soft mb-3 text-xs font-semibold tracking-wider uppercase">{h.sectionAccess}</legend>
         {text('username', f.username, { ltr: true, required: true })}
         {isSelf ? (
@@ -400,7 +496,10 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
 
       <fieldset className="grid gap-3">
         <legend className="sr-only">{f.roles}</legend>
-        <p className="text-sm font-medium">{f.roles}</p>
+        <p className="flex items-center gap-1 text-sm font-medium">
+          {f.roles}
+          <HelpTip text={c.rolesHelp} />
+        </p>
         {roles.error && !roles.data ? (
           <ErrorState compact error={roles.error} onRetry={() => void roles.refetch()} />
         ) : (
@@ -411,8 +510,8 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
                 id={`role-${r.key}`}
                 checked={form.roleKeys.includes(r.key)}
                 onCheckedChange={(c) => toggle('roleKeys', r.key, c)}
-                label={t.employeeHub.roles[r.key] ?? r.name}
-                description={r.description ?? undefined}
+                label={localized(locale, r.name, r.nameAr)}
+                description={t.approvalChains.roleHelp[r.key] ?? r.description ?? (r.isSystem ? undefined : c.customRole)}
               />
             ))}
           </div>
@@ -444,6 +543,45 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
             </div>
           </div>
         )}
+      </fieldset>
+
+      <fieldset className="grid gap-2" aria-describedby="emp-supervisors-help">
+        <legend className="mb-1 flex items-center gap-1 text-sm font-medium">
+          {c.supervisors}
+          <HelpTip text={c.supervisorsHelp} />
+        </legend>
+        <p id="emp-supervisors-help" className="sr-only">{c.supervisorsHelp}</p>
+        {form.supervisorUserIds.length === 0 ? (
+          <p className="text-muted-foreground text-xs">{c.noSupervisors}</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {form.supervisorUserIds.map((userId) => (
+              <li key={userId} className="inline-flex items-center gap-1 rounded-full border border-tint/[0.1] bg-tint/[0.03] py-0.5 ps-3 pe-1 text-sm">
+                <bdi>{supervisorLabel(userId)}</bdi>
+                {!canApprove(userId) && <span className="text-[color:var(--status-break)] text-xs">({c.noApproveRole})</span>}
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => toggle('supervisorUserIds', userId, false)} aria-label={fmt(c.removeSupervisor, { name: supervisorLabel(userId) })}>
+                  <X aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Select value="" onValueChange={(v) => v && toggle('supervisorUserIds', v, true)}>
+          <SelectTrigger id="emp-supervisorUserIds" className="w-full sm:w-80" aria-label={c.addSupervisor}>
+            <SelectValue placeholder={c.addSupervisor} />
+          </SelectTrigger>
+          <SelectContent>
+            {candidates
+              .filter((m) => !form.supervisorUserIds.includes(m.user!.id))
+              .sort((a, b) => Number(b.user!.roles.some((r) => approverRoles.has(r.key))) - Number(a.user!.roles.some((r) => approverRoles.has(r.key))))
+              .map((m) => (
+                <SelectItem key={m.user!.id} value={m.user!.id}>
+                  {localized(locale, m.fullName, m.fullNameAr)} · {m.user!.username}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+        {errors.supervisorUserIds && <p className="text-xs text-[color:var(--status-absent)]">{errors.supervisorUserIds}</p>}
       </fieldset>
 
       {formError && (

@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, type ComponentProps, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentProps, type FormEvent } from 'react';
 import { Copy, Loader2, Pencil, Plus, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ScheduleDto } from '@workforce/shared';
 
 import { Minutes, TimeRange } from '@/components/duration';
 import { CheckRow, FormField } from '@/components/form-field';
+import { HelpTip } from '@/components/help-tip';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,19 @@ import { fromHHMM, spanMinutes, toHHMM } from './schedule-time';
 /** Work week starts on Sunday in Jordan. */
 const WEEK = [0, 1, 2, 3, 4, 5, 6];
 
+/** Schedules no longer set the daily hours: say where they come from. */
+function HoursNote({ className }: { className?: string }) {
+  const { t } = useI18n();
+  const w = t.adminWorkflows.schedules;
+  return (
+    <p className={cn('text-muted-foreground flex items-center gap-1 text-sm', className)}>
+      <span>{w.hoursNote}</span>
+      <span className="sr-only">{w.hoursHelp}</span>
+      <HelpTip text={w.hoursHelp} />
+    </p>
+  );
+}
+
 export function SchedulesTab({ schedules }: { schedules: ApiState<ScheduleDto[]> }) {
   const { t } = useI18n();
   const s = t.schedules;
@@ -39,8 +53,9 @@ export function SchedulesTab({ schedules }: { schedules: ApiState<ScheduleDto[]>
   return (
     <div className="space-y-4">
       {/* The type explanation (s.typeHint) is the section's "?" next to the page title. */}
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <Button onClick={() => setEditing('new')}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <HoursNote />
+        <Button className="ms-auto" onClick={() => setEditing('new')}>
           <Plus aria-hidden />
           {s.add}
         </Button>
@@ -85,18 +100,6 @@ export function SchedulesTab({ schedules }: { schedules: ApiState<ScheduleDto[]>
   );
 }
 
-/** Fills "{duration}" in a template with a <Minutes> element (each number isolated for Arabic). */
-function withDuration(template: string, minutes: number): ReactNode {
-  const [before, after] = template.split('{duration}');
-  return (
-    <>
-      {before}
-      <Minutes value={minutes} dimZero={false} />
-      {after}
-    </>
-  );
-}
-
 function ScheduleCard({ schedule: x, onEdit }: { schedule: ScheduleDto; onEdit: () => void }) {
   const { t } = useI18n();
   const s = t.schedules;
@@ -116,8 +119,7 @@ function ScheduleCard({ schedule: x, onEdit }: { schedule: ScheduleDto; onEdit: 
             )}
           </CardTitle>
           <p className="text-muted-foreground text-xs">
-            {t.scheduleType[x.type]} · {withDuration(s.weeklyTotal, x.weeklyRequiredMinutes)}
-            {x.includedBreakMinutes > 0 && <> ({withDuration(s.includedShort, x.includedBreakMinutes)})</>}
+            {t.scheduleType[x.type]}
             {x.graceMinutes > 0 && ` · ${s.grace}: ${x.graceMinutes}`}
             {x.coreStartMinute !== null && x.coreEndMinute !== null && (
               <>
@@ -152,7 +154,7 @@ function ScheduleCard({ schedule: x, onEdit }: { schedule: ScheduleDto; onEdit: 
                       <bdi>{toHHMM(d!.endMinute)}</bdi>
                     </span>
                   ) : (
-                    <Minutes value={d!.requiredMinutes} className="text-xs" />
+                    <span className="text-xs">{s.workday}</span>
                   )
                 ) : (
                   <span className="text-muted-foreground text-xs">{s.off}</span>
@@ -170,18 +172,16 @@ interface DayDraft {
   works: boolean;
   start: string;
   end: string;
-  hours: string;
 }
 
 const draftFrom = (x: ScheduleDto | null): DayDraft[] =>
   WEEK.map((wd) => {
     const d = x?.days.find((y) => y.weekday === wd);
-    if (!x) return { works: wd <= 4, start: '09:00', end: '18:00', hours: '9' };
+    if (!x) return { works: wd <= 4, start: '08:00', end: '17:00' };
     return {
       works: d?.isWorkday ?? false,
-      start: toHHMM(d?.startMinute) || '09:00',
+      start: toHHMM(d?.startMinute) || '08:00',
       end: toHHMM(d?.endMinute) || '17:00',
-      hours: d ? String(Math.round((d.requiredMinutes / 60) * 100) / 100) : '8',
     };
   });
 
@@ -215,7 +215,6 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
   const [name, setName] = useState(existing?.name ?? '');
   const [type, setType] = useState<'FIXED' | 'FLEXIBLE'>(existing?.type ?? 'FIXED');
   const [grace, setGrace] = useState(String(existing?.graceMinutes ?? 10));
-  const [includedBreak, setIncludedBreak] = useState(String(existing?.includedBreakMinutes ?? 60));
   const [coreStart, setCoreStart] = useState(toHHMM(existing?.coreStartMinute));
   const [coreEnd, setCoreEnd] = useState(toHHMM(existing?.coreEndMinute));
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false);
@@ -225,32 +224,27 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
   const [saving, setSaving] = useState(false);
   const [initial] = useState(() =>
     JSON.stringify([
-      existing?.name ?? '', existing?.type ?? 'FIXED', String(existing?.graceMinutes ?? 10), String(existing?.includedBreakMinutes ?? 60),
+      existing?.name ?? '', existing?.type ?? 'FIXED', String(existing?.graceMinutes ?? 10),
       toHHMM(existing?.coreStartMinute), toHHMM(existing?.coreEndMinute), existing?.isDefault ?? false, draftFrom(existing),
     ]),
   );
-  const dirty = JSON.stringify([name, type, grace, includedBreak, coreStart, coreEnd, isDefault, days]) !== initial;
+  const dirty = JSON.stringify([name, type, grace, coreStart, coreEnd, isDefault, days]) !== initial;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
   const rangeMessage = fmt(w.wholeNumberRange, { min: 0, max: 240 });
 
   const setDay = (wd: number, patch: Partial<DayDraft>) => setDays((all) => all.map((d, i) => (i === wd ? { ...d, ...patch } : d)));
-  /** Minutes required on a day: the shift length for fixed schedules, the typed hours for flexible ones. */
-  const required = (d: DayDraft): number | null => {
-    if (!d.works) return 0;
-    if (type === 'FIXED') {
-      const a = fromHHMM(d.start);
-      const b = fromHHMM(d.end);
-      return a === null || b === null || a === b ? null : spanMinutes(a, b);
-    }
-    const h = parseLocaleNumber(d.hours);
-    return h !== null && h > 0 && h <= 24 ? Math.round(h * 60) : null;
+  /** Shift length of a fixed-schedule day (shown next to the times), or null when the times are not valid. */
+  const shift = (d: DayDraft): number | null => {
+    if (!d.works || type !== 'FIXED') return 0;
+    const a = fromHHMM(d.start);
+    const b = fromHHMM(d.end);
+    return a === null || b === null || a === b ? null : spanMinutes(a, b);
   };
-  const weekly = days.reduce((sum, d) => sum + (required(d) ?? 0), 0);
 
   const firstWorkday = days.findIndex((d) => d.works);
   const copyFirst = () => {
     const first = days[firstWorkday];
-    if (first) setDays((all) => all.map((d) => (d.works ? { ...d, start: first.start, end: first.end, hours: first.hours } : d)));
+    if (first) setDays((all) => all.map((d) => (d.works ? { ...d, start: first.start, end: first.end } : d)));
   };
 
   const onSubmit = async (e: FormEvent) => {
@@ -259,32 +253,31 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
     if (!name.trim()) v.name = t.employees.required;
     const g = minutesOf(grace);
     if (g === null) v.graceMinutes = rangeMessage;
-    const ib = minutesOf(includedBreak);
-    if (ib === null) v.includedBreakMinutes = rangeMessage;
     if (!days.some((d) => d.works)) v.days = s.noWorkdays;
-    if (days.some((d) => d.works && required(d) === null)) v.days = type === 'FIXED' ? s.invalidTime : s.invalidHours;
+    if (days.some((d) => d.works && shift(d) === null)) v.days = s.invalidTime;
     const cs = type === 'FLEXIBLE' && coreStart ? fromHHMM(coreStart) : null;
     const ce = type === 'FLEXIBLE' && coreEnd ? fromHHMM(coreEnd) : null;
     if (type === 'FLEXIBLE' && (cs === null) !== (ce === null)) v.core = s.invalidCore;
     if (cs !== null && ce !== null && ce <= cs) v.core = s.invalidCore;
     setErrors(v);
     setFormError(null);
-    if (Object.keys(v).length || g === null || ib === null) {
-      const order: [string, string][] = [['name', 'sc-name'], ['graceMinutes', 'sc-grace'], ['includedBreakMinutes', 'sc-break'], ['core', 'sc-core-start']];
+    if (Object.keys(v).length || g === null) {
+      const order: [string, string][] = [['name', 'sc-name'], ['graceMinutes', 'sc-grace'], ['core', 'sc-core-start']];
       document.getElementById(order.find(([k]) => v[k])?.[1] ?? '')?.focus();
       return;
     }
 
+    // Daily hours are not part of a schedule (they come from the employee or the settings).
     const body = {
-      name: name.trim(), type, graceMinutes: g, includedBreakMinutes: ib, isDefault, coreStartMinute: cs, coreEndMinute: ce,
+      name: name.trim(), type, graceMinutes: g, isDefault, coreStartMinute: cs, coreEndMinute: ce,
       days: days.map((d, weekday) =>
         d.works
           ? {
-              weekday, isWorkday: true, requiredMinutes: required(d)!,
+              weekday, isWorkday: true,
               startMinute: type === 'FIXED' ? fromHHMM(d.start) : null,
               endMinute: type === 'FIXED' ? fromHHMM(d.end) : null,
             }
-          : { weekday, isWorkday: false, requiredMinutes: 0, startMinute: null, endMinute: null }),
+          : { weekday, isWorkday: false, startMinute: null, endMinute: null }),
     };
     setSaving(true);
     try {
@@ -341,21 +334,7 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
             />
           )}
         </FormField>
-        <FormField id="sc-break" label={s.includedBreak} hint={s.includedBreakHint} error={errors.includedBreakMinutes} className="sm:col-span-2">
-          {({ id, describedBy, invalid }) => (
-            <UnitInput
-              id={id}
-              unit={w.units.min}
-              inputMode="numeric"
-              wrapperClassName="max-w-40"
-              value={includedBreak}
-              onChange={(e) => setIncludedBreak(e.target.value)}
-              onBlur={() => setErrors((er) => ({ ...er, includedBreakMinutes: minutesOf(includedBreak) === null ? rangeMessage : '' }))}
-              aria-describedby={describedBy}
-              aria-invalid={invalid}
-            />
-          )}
-        </FormField>
+        <HoursNote className="self-end sm:col-span-2" />
         {type === 'FLEXIBLE' && (
           <>
             <FormField id="sc-core-start" label={s.coreStart} hint={s.coreHint} error={errors.core} optional>
@@ -380,7 +359,7 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
         </div>
         <div className="divide-y divide-tint/[0.05] rounded-xl border border-tint/[0.06]">
           {days.map((d, wd) => {
-            const req = required(d);
+            const req = shift(d);
             const a = fromHHMM(d.start);
             const b = fromHHMM(d.end);
             return (
@@ -399,16 +378,7 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
                       {a !== null && b !== null && b < a && <span className="text-xs text-[color:var(--status-break)]">{s.overnight}</span>}
                     </>
                   ) : (
-                    <>
-                      <UnitInput
-                        inputMode="decimal"
-                        unit={w.units.hours}
-                        wrapperClassName="w-28"
-                        value={d.hours}
-                        onChange={(e) => setDay(wd, { hours: e.target.value })}
-                        aria-label={`${s.hours}: ${s.weekdays[wd]}`}
-                      />
-                    </>
+                    <span className="text-muted-foreground text-sm">{s.workday}</span>
                   )
                 ) : (
                   <span className="text-muted-foreground text-sm">{s.off}</span>
@@ -417,14 +387,11 @@ function ScheduleForm({ existing, onCancel, onSaved, onDirtyChange }: {
             );
           })}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-muted-foreground text-xs">{withDuration(s.weeklyTotal, weekly)}</p>
-          {errors.days && (
-            <p role="alert" className="text-xs text-[color:var(--status-absent)]">
-              {errors.days}
-            </p>
-          )}
-        </div>
+        {errors.days && (
+          <p role="alert" className="text-xs text-[color:var(--status-absent)]">
+            {errors.days}
+          </p>
+        )}
       </div>
 
       {/* Applied on Save, so this is a checkbox, not a switch. */}

@@ -7,7 +7,7 @@ import { Check, ChevronLeft, ChevronRight, CircleCheck, ExternalLink, Info, Load
 import { toast } from 'sonner';
 import {
   PERMISSIONS,
-  type ApprovalItemDto, type ApprovalSummaryDto, type ApprovalTab, type BulkApproveResultDto, type LeaveBalanceDto, type Paginated, type RequestKind,
+  type ApprovalItemDto, type ApprovalSummaryDto, type ApprovalTab, type BulkApproveResultDto, type LeaveBalanceDto, type Paginated, type RequestKind, type RoleDto,
 } from '@workforce/shared';
 
 import { BulkActionBar } from '@/components/bulk-action-bar';
@@ -17,7 +17,8 @@ import { EmployeeLink, employeeHref, type EmployeeTab } from '@/components/emplo
 import { FormField } from '@/components/form-field';
 import { PageHeader } from '@/components/page-header';
 import { LeaveDocuments } from '@/components/leave-documents';
-import { DecisionList, Field, RequestStatusBadge, useLeaveAmount } from '@/components/request-bits';
+import { ChainProgress, useStepLabel } from '@/components/approval-chain';
+import { Field, RequestStatusBadge, useLeaveAmount } from '@/components/request-bits';
 import { ForbiddenState, LoadingRows } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -156,6 +157,11 @@ function ApprovalCenter() {
   /** The sheet moved to another request by Previous/Next/advance: its title takes focus so it is not lost. */
   const navigated = useRef(false);
 
+  const { can } = useAuth();
+  const roles = useApi<RoleDto[]>(can(PERMISSIONS.EMPLOYEES_READ, PERMISSIONS.ROLES_MANAGE, PERMISSIONS.SETTINGS_MANAGE) ? '/roles' : null);
+  const stepLabel = useStepLabel(roles.data);
+  const c = t.approvalChains;
+  const [bulkNote, setBulkNote] = useState('');
   const list = useApi<Paginated<ApprovalItemDto>>('/approvals', { tab, kind: kind === 'all' ? undefined : kind, page, pageSize: PAGE_SIZE });
   const summary = useApi<ApprovalSummaryDto>('/approvals/summary');
   const items = list.data?.items;
@@ -303,12 +309,13 @@ function ApprovalCenter() {
   const bulkApprove = async () => {
     const chosen = actionable.filter((i) => selected.has(keyOf(i))).map((i) => ({ kind: i.kind, id: i.id }));
     try {
-      const res = await api<BulkApproveResultDto>('/approvals/bulk-approve', { method: 'POST', body: { items: chosen } });
+      const res = await api<BulkApproveResultDto>('/approvals/bulk-approve', { method: 'POST', body: { items: chosen, comment: bulkNote.trim() || undefined } });
       const message = fmt(t.approvals.bulkResult, { approved: res.approved, failed: res.failed });
       if (res.failed) toast.warning(message);
       else toast.success(message);
       window.dispatchEvent(new Event(APPROVALS_CHANGED_EVENT));
       setSelected(new Set());
+      setBulkNote('');
       refresh();
       return true;
     } catch (err) {
@@ -350,7 +357,16 @@ function ApprovalCenter() {
     {
       id: 'status',
       header: t.common.status,
-      cell: (i) => (tab === 'PENDING' && !i.canAct ? <span className="text-muted-foreground text-xs">{t.approvals.waiting}</span> : <RequestStatusBadge status={i.status} />),
+      cell: (i) => (
+        <div className="grid gap-0.5">
+          {tab === 'PENDING' && !i.canAct ? <span className="text-muted-foreground text-xs">{t.approvals.waiting}</span> : <RequestStatusBadge status={i.status} />}
+          {i.status === 'PENDING' && i.currentStep && (
+            <span className="text-muted-foreground text-xs">
+              {i.totalLevels > 1 ? fmt(c.progress.stepOfWho, { level: i.currentLevel, levels: i.totalLevels, who: stepLabel(i.currentStep) }) : stepLabel(i.currentStep)}
+            </span>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -477,6 +493,7 @@ function ApprovalCenter() {
               onDecided={onDecided}
               onKeepPending={closeSheet}
               employeeHrefFrom={sheetUrl}
+              roles={roles.data}
               notWaiting={looked !== null && !looked.canAct && looked.status !== 'PENDING'}
               focusTitle={navigated.current}
             />
@@ -494,10 +511,16 @@ function ApprovalCenter() {
         open={bulkOpen}
         onOpenChange={setBulkOpen}
         title={fmt(t.approvals.bulkTitle, { n: selectedCount })}
-        description={t.approvals.bulkBody}
+        description={c.approvals.bulkBody}
         confirmLabel={a.approveSelected}
         onConfirm={bulkApprove}
-      />
+      >
+        <FormField id="bulk-note" label={c.approvals.bulkNoteLabel} hint={c.approvals.bulkNoteHint} optional>
+          {({ id, describedBy }) => (
+            <Textarea id={id} value={bulkNote} onChange={(e) => setBulkNote(e.target.value)} aria-describedby={describedBy} maxLength={1000} rows={2} dir="auto" />
+          )}
+        </FormField>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -528,8 +551,10 @@ function MobileSelectAll({ keys, selected, onChange }: { keys: string[]; selecte
   );
 }
 
-function ApprovalDetail({ item, position, onPrevious, onNext, onDecided, onKeepPending, employeeHrefFrom, notWaiting, focusTitle }: {
+function ApprovalDetail({ item, position, onPrevious, onNext, onDecided, onKeepPending, employeeHrefFrom, notWaiting, focusTitle, roles }: {
   item: ApprovalItemDto;
+  /** Role names for the chain steps (when the viewer may list roles). */
+  roles?: RoleDto[];
   position: { n: number; m: number } | null;
   onPrevious?: () => void;
   onNext?: () => void;
@@ -579,7 +604,11 @@ function ApprovalDetail({ item, position, onPrevious, onNext, onDecided, onKeepP
   };
 
   const reason = item.leave?.reason ?? item.overtime?.reason ?? item.correction?.reason ?? null;
-  const steps = item.leave?.approvals ?? item.overtime?.approvals ?? [];
+  const c = t.approvalChains;
+  const stepLabel = useStepLabel(roles);
+  const request = item.leave ?? item.overtime ?? item.correction;
+  const chain = item.leave ? item.leave.approvalSteps : (request?.approvalSteps ?? null);
+  const nextStep = chain && item.status === 'PENDING' ? chain[item.currentLevel] : undefined;
   const Prev = dir === 'rtl' ? ChevronRight : ChevronLeft;
   const Next = dir === 'rtl' ? ChevronLeft : ChevronRight;
   const showBalance = item.status === 'PENDING' && !!item.leave?.leaveType?.tracksBalance && !item.leave.confidential && can(PERMISSIONS.LEAVE_APPROVE);
@@ -630,9 +659,11 @@ function ApprovalDetail({ item, position, onPrevious, onNext, onDecided, onKeepP
         {showBalance && item.leave && <LeaveBalanceLine item={item} />}
         <Field label={t.common.status}><RequestStatusBadge status={item.status} /></Field>
         <Field label={t.approvals.submitted}><span className="tabular">{formatDateTime(item.submittedAt, locale)}</span></Field>
-        {/* approvalLevels is null on confidential rows shown to managers: no "level x of y" then. */}
-        {item.leave && item.leave.approvalLevels !== null && item.leave.approvalLevels > 1 && item.status === 'PENDING' && (
-          <Field label={t.common.details}>{fmt(t.requests.level, { level: item.leave.currentLevel, levels: item.leave.approvalLevels })}</Field>
+        {/* No chain on confidential rows shown to managers. */}
+        {item.status === 'PENDING' && item.currentStep && (
+          <Field label={c.approvals.chainColumn}>
+            {item.totalLevels > 1 ? fmt(c.progress.stepOfWho, { level: item.currentLevel, levels: item.totalLevels, who: stepLabel(item.currentStep) }) : stepLabel(item.currentStep)}
+          </Field>
         )}
         {item.overtime && (
           <>
@@ -674,17 +705,25 @@ function ApprovalDetail({ item, position, onPrevious, onNext, onDecided, onKeepP
         <LeaveDocuments requestId={item.leave.id} documents={item.leave.documents} missingWarning={item.leave.leaveType?.requiresAttachment ?? false} />
       )}
 
-      {item.kind !== 'CORRECTION' && (
+      {request && (
         <div className="space-y-2">
-          <p className="text-sm font-semibold">{t.requests.history}</p>
-          <DecisionList steps={steps} levels={item.leave?.approvalLevels ?? undefined} />
+          <p className="text-sm font-semibold">{c.progress.title}</p>
+          <ChainProgress
+            steps={chain}
+            currentLevel={request.currentLevel}
+            status={item.status}
+            approvals={request.approvals}
+            skippedLevels={request.skippedLevels}
+            roles={roles}
+          />
         </div>
       )}
 
       {item.canAct ? (
         <div className="space-y-3 rounded-2xl border border-tint/[0.06] bg-tint/[0.02] p-4">
           <p className="text-sm font-semibold">{t.approvals.yourTurn}</p>
-          <FormField id="decision-comment" label={t.approvals.commentLabel} hint={t.approvals.rejectReasonRequired} error={commentError ?? undefined}>
+          <p className="text-muted-foreground text-xs">{nextStep ? fmt(c.approvals.afterYou, { who: stepLabel(nextStep) }) : c.approvals.lastStep}</p>
+          <FormField id="decision-comment" label={c.approvals.approveNoteLabel} hint={c.approvals.approveNoteHint} error={commentError ?? undefined}>
             {({ id, describedBy, invalid }) => (
               <Textarea id={id} value={comment} onChange={(e) => setComment(e.target.value)} aria-describedby={describedBy} aria-invalid={invalid} maxLength={1000} rows={3} dir="auto" />
             )}

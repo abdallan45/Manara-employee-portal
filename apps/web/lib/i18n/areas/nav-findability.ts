@@ -95,7 +95,7 @@ export const en = {
     entitlements: 'Set entitlements for many employees at once.',
     overtime: 'Rates for extra time and how it is approved.',
     portal: 'Which pages and sections employees see under “My work”.',
-    general: 'Company name, time zone and sign-in security.',
+    general: 'Company name, time zone, default working hours and sign-in security.',
   },
   status: {
     officesNone: 'No office location · {mode}',
@@ -232,7 +232,7 @@ export const ar: typeof en = {
     entitlements: 'تحديد الاستحقاقات لعدة موظفين دفعة واحدة.',
     overtime: 'معاملات الوقت الإضافي وطريقة اعتماده.',
     portal: 'الصفحات والأقسام التي يراها الموظفون ضمن «عملي».',
-    general: 'اسم الشركة والمنطقة الزمنية وأمان تسجيل الدخول.',
+    general: 'اسم الشركة والمنطقة الزمنية وساعات الدوام الافتراضية وأمان تسجيل الدخول.',
   },
   status: {
     officesNone: 'لا يوجد موقع مكتب · {mode}',

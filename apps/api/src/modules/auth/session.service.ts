@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { SessionUser } from '@workforce/shared';
+import { SYSTEM_ROLES, type SessionUser } from '@workforce/shared';
 import type { AuthUser } from '../../common/auth';
 import { Db, PrismaService } from '../../common/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -10,6 +10,7 @@ import { generateToken, sha256Hex } from './password';
 export const PRINCIPAL_INCLUDE = {
   employee: { include: { department: { select: { name: true, nameAr: true } } } },
   roles: { include: { role: { include: { permissions: { include: { permission: { select: { key: true } } } } } } } },
+  supervising: { select: { employeeId: true } },
 } satisfies Prisma.UserInclude;
 
 export type Principal = Prisma.UserGetPayload<{ include: typeof PRINCIPAL_INCLUDE }>;
@@ -34,7 +35,8 @@ export function toAuthUser(p: Principal, sessionId: string, ip: string): AuthUse
   for (const ur of p.roles) {
     roles.add(ur.role.key);
     for (const rp of ur.role.permissions) permissions.add(rp.permission.key);
-    if (ur.departmentId) managed.add(ur.departmentId);
+    // Only department-manager grants carry a department scope.
+    if (ur.departmentId && ur.role.key === SYSTEM_ROLES.DEPARTMENT_MANAGER) managed.add(ur.departmentId);
   }
   return {
     userId: p.id,
@@ -44,6 +46,7 @@ export function toAuthUser(p: Principal, sessionId: string, ip: string): AuthUse
     roles: [...roles].sort(),
     permissions,
     managedDepartmentIds: [...managed],
+    supervisedEmployeeIds: p.supervising.map((s) => s.employeeId),
     ip,
   };
 }

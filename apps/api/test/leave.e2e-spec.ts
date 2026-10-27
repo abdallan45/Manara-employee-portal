@@ -92,7 +92,7 @@ describe('leave requests', () => {
 
     const created = await people.http.emp.post('/api/v1/leave/requests').send(fullDays(sun, addDays(sun, 2)));
     expect(created.status).toBe(201);
-    expect(created.body).toMatchObject({ status: 'PENDING', currentLevel: 1, approvalLevels: 1, minutes: 3 * DAY, mode: 'FULL_DAY', startDate: sun, endDate: addDays(sun, 2) });
+    expect(created.body).toMatchObject({ status: 'PENDING', currentLevel: 1, approvalSteps: ['MANAGER'], minutes: 3 * DAY, mode: 'FULL_DAY', startDate: sun, endDate: addDays(sun, 2) });
     expect(await auditActions(created.body.id)).toEqual(['LEAVE_REQUEST_CREATE']);
     // The department manager is told; HR is not needed at level 1.
     const mgrNotes = await notificationsOf(people.users.mgr.userId);
@@ -170,7 +170,7 @@ describe('leave requests', () => {
   it('two-level types go to the manager, then HR; nobody approves twice', async () => {
     const sun = futureSunday();
     const req = (await people.http.emp.post('/api/v1/leave/requests').send(fullDays(sun, sun, catalog.twoLevel.id))).body;
-    expect(req).toMatchObject({ currentLevel: 1, approvalLevels: 2 });
+    expect(req).toMatchObject({ currentLevel: 1, approvalSteps: ['MANAGER', 'HR_ADMIN'], skippedLevels: [] });
 
     const level1 = await people.http.mgr.post(`/api/v1/approvals/leave/${req.id}/approve`).send({});
     expect(level1.body).toMatchObject({ status: 'PENDING', leave: { currentLevel: 2 } });
@@ -184,7 +184,7 @@ describe('leave requests', () => {
 
     const final = await people.http.hr.post(`/api/v1/approvals/leave/${req.id}/approve`).send({});
     expect(final.body).toMatchObject({ status: 'APPROVED' });
-    expect(final.body.leave.approvals.map((a: { level: number }) => a.level)).toEqual([1, 2]);
+    expect(final.body.leave.approvals.map((a: { level: number; step: string }) => [a.level, a.step])).toEqual([[1, 'MANAGER'], [2, 'HR_ADMIN']]);
     expect(await auditActions(req.id)).toEqual(['LEAVE_REQUEST_CREATE', 'LEAVE_REQUEST_APPROVE_LEVEL', 'LEAVE_REQUEST_APPROVE']);
   });
 
@@ -192,6 +192,7 @@ describe('leave requests', () => {
     const sun = futureSunday();
     const own = (await people.http.mgr.post('/api/v1/leave/requests').send(fullDays(sun, sun, catalog.twoLevel.id))).body;
     expect(own.currentLevel).toBe(2); // no other Engineering manager
+    expect(own.skippedLevels).toEqual([1]);
     const self = await people.http.mgr.post(`/api/v1/approvals/leave/${own.id}/approve`).send({});
     expect(self.status).toBe(403);
     expectErrorEnvelope(self.body, 'SELF_APPROVAL_FORBIDDEN');

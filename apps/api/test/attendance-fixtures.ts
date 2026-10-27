@@ -35,7 +35,7 @@ export function authUser(
   return {
     userId: user.id, sessionId: randomUUID(), username: user.username, employeeId,
     roles: [role], permissions: new Set<string>(DEFAULT_ROLE_PERMISSIONS[role]),
-    managedDepartmentIds: opts.managed ?? [], ip: opts.ip ?? '10.1.2.3',
+    managedDepartmentIds: opts.managed ?? [], supervisedEmployeeIds: [], ip: opts.ip ?? '10.1.2.3',
   };
 }
 

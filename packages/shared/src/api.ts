@@ -93,8 +93,14 @@ export interface DayMetrics {
   paidBreakMinutes: number;
   unpaidBreakMinutes: number;
   excessBreakMinutes: number;
+  /** Presence minus break time beyond the included break allowance. */
   netWorkMinutes: number;
+  /** Time to spend at work on this day, break included (0 on days off, holidays, full-day leave). */
   requiredMinutes: number;
+  /** Break time inside the working day: breaks up to this many minutes still count as work. */
+  includedBreakMinutes: number;
+  /** Part of that allowance not yet used by deductible break time, as of the computation. */
+  breakAllowanceLeftMinutes: number;
   missingMinutes: number;
   extraMinutes: number;
   lateMinutes: number;
