@@ -9,7 +9,7 @@ export const en = {
     DIRECT: 'Approved directly',
   },
   stepHelp: {
-    MANAGER: 'The employee’s project managers (supervisors) and the managers of their department. Skipped when the employee has none, and always for confidential leave types.',
+    MANAGER: 'The employee’s direct manager, their project managers (supervisors) and the managers of their department, if they hold a role that can approve. Skipped when the employee has none, and always for confidential leave types.',
     ANY_APPROVER: 'Nobody in the chain could approve this request (for example no manager and no one holding the role), so HR and other company-wide approvers decide it.',
   },
   /** Built-in role names, used where the role list is not loaded (employee pages). */
@@ -27,7 +27,7 @@ export const en = {
     HR_ADMIN: 'Manages employees, settings for people, and sees and approves for the whole company.',
     GENERAL_MANAGER: 'Sees attendance and reports for the whole company and approves the steps given to the general manager. Cannot add or edit employees.',
     DEPARTMENT_MANAGER: 'Sees and approves for the employees of the departments chosen below.',
-    PROJECT_MANAGER: 'Sees and approves only for the employees assigned to them (set “Project managers / supervisors” on each employee). Cannot add or edit employees.',
+    PROJECT_MANAGER: 'Sees and approves only for their team: the employees they are direct manager of, plus those assigned to them (on their Team tab or each employee’s “Project managers / supervisors”). Cannot add or edit employees.',
     EMPLOYEE: 'Records their own attendance and makes their own requests.',
   } as Record<string, string>,
 
@@ -98,7 +98,7 @@ export const en = {
   /** Employee dialog */
   employee: {
     supervisors: 'Project managers / supervisors',
-    supervisorsHelp: 'They see this employee’s attendance and approve the “Direct manager” step of their requests, like a department manager does. Give them the Project manager role so they can see and approve.',
+    supervisorsHelp: 'They see this employee’s attendance and approve the “Direct manager” step of their requests, like a department manager does. The direct manager counts automatically; add others here. Give them the Project manager role so they can see and approve.',
     addSupervisor: 'Add a project manager…',
     noSupervisors: 'None. The department’s managers approve the manager step.',
     removeSupervisor: 'Remove {name}',
@@ -120,7 +120,7 @@ export const en = {
     navLabel: 'Roles & permissions',
     title: 'Roles & permissions',
     subtitle: 'What each role can see and do. A person can hold several roles; they get everything their roles allow.',
-    teamExplained: '“Their team” means the employees of the departments they manage plus the employees assigned to them as project manager.',
+    teamExplained: '“Their team” means the employees of the departments they manage, the employees they are direct manager of, and the employees assigned to them as project manager.',
     add: 'New role',
     createTitle: 'New role',
     editTitle: 'Edit role',
@@ -204,7 +204,7 @@ export const ar: typeof en = {
     DIRECT: 'اعتُمد مباشرة',
   },
   stepHelp: {
-    MANAGER: 'مديرو المشاريع (المشرفون) المعيّنون للموظف ومديرو قسمه. تُتخطّى هذه الخطوة إن لم يكن له أحد منهم، وتُتخطّى دائماً في أنواع الإجازات السرية.',
+    MANAGER: 'المدير المباشر للموظف ومديرو المشاريع (المشرفون) المعيّنون له ومديرو قسمه، إن كان لديهم دور يسمح بالموافقة. تُتخطّى هذه الخطوة إن لم يكن له أحد منهم، وتُتخطّى دائماً في أنواع الإجازات السرية.',
     ANY_APPROVER: 'لم يكن في سلسلة الموافقات من يستطيع اعتماد هذا الطلب (مثلاً لا مدير ولا أحد يحمل الدور)، فتقرر فيه الموارد البشرية ومن يوافق على مستوى الشركة.',
   },
   roleNames: {
@@ -220,7 +220,7 @@ export const ar: typeof en = {
     HR_ADMIN: 'يدير الموظفين وإعدادات شؤون الموظفين، ويرى ويوافق على مستوى الشركة كلها.',
     GENERAL_MANAGER: 'يرى الحضور والتقارير للشركة كلها ويوافق على الخطوات المخصّصة للمدير العام. لا يستطيع إضافة الموظفين أو تعديلهم.',
     DEPARTMENT_MANAGER: 'يرى ويوافق لموظفي الأقسام المختارة أدناه.',
-    PROJECT_MANAGER: 'يرى ويوافق للموظفين المعيّنين له فقط (حدّد «مديرو المشاريع / المشرفون» في ملف كل موظف). لا يستطيع إضافة الموظفين أو تعديلهم.',
+    PROJECT_MANAGER: 'يرى ويوافق لفريقه فقط: الموظفون الذين هو مديرهم المباشر، والمعيّنون له (من تبويب «الفريق» في ملفه أو من «مديرو المشاريع / المشرفون» في ملف كل موظف). لا يستطيع إضافة الموظفين أو تعديلهم.',
     EMPLOYEE: 'يسجّل حضوره ويقدّم طلباته الخاصة.',
   },
   progress: {
@@ -279,7 +279,7 @@ export const ar: typeof en = {
   },
   employee: {
     supervisors: 'مديرو المشاريع / المشرفون',
-    supervisorsHelp: 'يرون حضور هذا الموظف ويوافقون على خطوة «المدير المباشر» في طلباته، كما يفعل مدير القسم. امنحهم دور «مدير مشروع» ليتمكنوا من الرؤية والموافقة.',
+    supervisorsHelp: 'يرون حضور هذا الموظف ويوافقون على خطوة «المدير المباشر» في طلباته، كما يفعل مدير القسم. المدير المباشر يُحتسب تلقائياً؛ أضف هنا غيره. امنحهم دور «مدير مشروع» ليتمكنوا من الرؤية والموافقة.',
     addSupervisor: 'إضافة مدير مشروع…',
     noSupervisors: 'لا أحد. يوافق مديرو القسم على خطوة المدير.',
     removeSupervisor: 'إزالة {name}',
@@ -299,7 +299,7 @@ export const ar: typeof en = {
     navLabel: 'الأدوار والصلاحيات',
     title: 'الأدوار والصلاحيات',
     subtitle: 'ما يستطيع كل دور رؤيته وفعله. يمكن أن يحمل الشخص عدة أدوار؛ فيحصل على كل ما تسمح به أدواره.',
-    teamExplained: '«فريقه» يعني موظفي الأقسام التي يديرها إضافةً إلى الموظفين المعيّنين له كمدير مشروع.',
+    teamExplained: '«فريقه» يعني موظفي الأقسام التي يديرها، والموظفين الذين هو مديرهم المباشر، والموظفين المعيّنين له كمدير مشروع.',
     add: 'دور جديد',
     createTitle: 'دور جديد',
     editTitle: 'تعديل الدور',

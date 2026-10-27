@@ -152,6 +152,8 @@ export class ApproverDirectory {
       ? {
           OR: [
             { supervising: { some: { employeeId: employee.id } } },
+            // The employee's direct manager supervises them automatically.
+            { employee: { isActive: true, deletedAt: null, reports: { some: { id: employee.id } } } },
             ...(employee.departmentId ? [{ roles: { some: { departmentId: employee.departmentId, role: { key: SYSTEM_ROLES.DEPARTMENT_MANAGER } } } }] : []),
           ],
         }

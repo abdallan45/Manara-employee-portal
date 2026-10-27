@@ -56,7 +56,7 @@ export interface RoutedRequest extends RoutedEmployee {
 /**
  * Whether `a` may decide the request's current step.
  * - Never their own request, never two steps of one request.
- * - MANAGER: the employee's supervisors and the managers of their department.
+ * - MANAGER: the employee's supervisors (their direct manager included) and the managers of their department.
  * - FALLBACK_STEP: company-wide approvers.
  * - A role key: holders of that role.
  * - SUPER_ADMIN may decide any step.

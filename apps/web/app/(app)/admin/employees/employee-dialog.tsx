@@ -369,7 +369,15 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
 
   // Supervisors: any active user except this employee's own login.
   const approverRoles = new Set((roles.data ?? []).filter((r) => r.permissions.some((p) => APPROVE_PERMISSIONS.includes(p))).map((r) => r.key));
-  const candidates = (managers.data?.items ?? []).filter((m) => m.user?.isActive && m.user.id !== existing?.user?.id);
+  // The direct manager's login supervises automatically (shown as a fixed chip, never listed or offered).
+  const chosenManager = form.managerId === NONE ? undefined : managerOptions.find((m) => m.id === form.managerId);
+  const directManager = chosenManager
+    ? (chosenManager.user?.isActive ? { userId: chosenManager.user.id, label: `${localized(locale, chosenManager.fullName, chosenManager.fullNameAr)} · ${chosenManager.user.username}` } : null)
+    : existing?.directManagerSupervisor && form.managerId === existing.managerId
+      ? { userId: existing.directManagerSupervisor.userId, label: `${localized(locale, existing.directManagerSupervisor.name, existing.directManagerSupervisor.nameAr) || existing.directManagerSupervisor.username} · ${existing.directManagerSupervisor.username}` }
+      : null;
+  const explicitSupervisors = form.supervisorUserIds.filter((userId) => userId !== directManager?.userId);
+  const candidates = (managers.data?.items ?? []).filter((m) => m.user?.isActive && m.user.id !== existing?.user?.id && m.user.id !== directManager?.userId);
   const supervisorLabel = (userId: string): string => {
     const known = existing?.supervisors.find((s) => s.userId === userId);
     if (known) return `${localized(locale, known.name, known.nameAr) || known.username} · ${known.username}`;
@@ -377,7 +385,7 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
     return m ? `${localized(locale, m.fullName, m.fullNameAr)} · ${m.user!.username}` : userId;
   };
   const canApprove = (userId: string): boolean => {
-    const m = candidates.find((x) => x.user?.id === userId);
+    const m = (managers.data?.items ?? []).find((x) => x.user?.id === userId);
     return !m || m.user!.roles.some((r) => approverRoles.has(r.key));
   };
   const hoursText = (minutes: number) => formatMinutes(minutes, units);
@@ -569,11 +577,19 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
           <HelpTip text={c.supervisorsHelp} />
         </legend>
         <p id="emp-supervisors-help" className="sr-only">{c.supervisorsHelp}</p>
-        {form.supervisorUserIds.length === 0 ? (
+        {explicitSupervisors.length === 0 && !directManager ? (
           <p className="text-muted-foreground text-xs">{c.noSupervisors}</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
-            {form.supervisorUserIds.map((userId) => (
+            {directManager && (
+              <li className="inline-flex items-center gap-1 rounded-full border border-tint/[0.1] bg-tint/[0.06] px-3 py-1 text-sm">
+                <bdi>{directManager.label}</bdi>
+                <span className="text-muted-foreground text-xs">({t.managerTeam.directManagerChip})</span>
+                {!canApprove(directManager.userId) && <span className="text-[color:var(--status-break)] text-xs">({c.noApproveRole})</span>}
+                <HelpTip text={t.managerTeam.directManagerChipHelp} />
+              </li>
+            )}
+            {explicitSupervisors.map((userId) => (
               <li key={userId} className="inline-flex items-center gap-1 rounded-full border border-tint/[0.1] bg-tint/[0.03] py-0.5 ps-3 pe-1 text-sm">
                 <bdi>{supervisorLabel(userId)}</bdi>
                 {!canApprove(userId) && <span className="text-[color:var(--status-break)] text-xs">({c.noApproveRole})</span>}

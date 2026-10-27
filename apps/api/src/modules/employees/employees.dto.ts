@@ -93,3 +93,14 @@ export class CreateEmployeeDto {
 
 /** Partial update. For nullable fields, null clears the value and an absent field leaves it unchanged. */
 export class UpdateEmployeeDto extends PartialType(CreateEmployeeDto) {}
+
+/** PUT /employees/:id/team. Each list given replaces the current one; an absent list is left unchanged. */
+export class UpdateEmployeeTeamDto {
+  @ApiPropertyOptional({ type: [String], description: "Employees this employee's login supervises explicitly (project manager); direct reports are ignored" })
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true })
+  supervisedEmployeeIds?: string[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Employees whose direct manager becomes this employee; current reports left out lose it' })
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(500) @IsUUID('all', { each: true })
+  directReportIds?: string[];
+}

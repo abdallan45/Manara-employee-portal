@@ -43,16 +43,17 @@ import { OverviewTab } from './overview-tab';
 import { OvertimeTab } from './overtime-tab';
 import { ProfileTab } from './profile-tab';
 import { ScheduleTab } from './schedule-tab';
+import { TeamTab } from './team-tab';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** GET /corrections/employees/:id/sessions covers work dates from today − 31 days (corrections.service). */
 const CORRECTABLE_DAYS = 31;
-const ALL_TABS: readonly EmployeeTab[] = ['overview', 'attendance', 'leave', 'overtime', 'schedule', 'profile'];
+const ALL_TABS: readonly EmployeeTab[] = ['overview', 'attendance', 'leave', 'overtime', 'schedule', 'team', 'profile'];
 /** Tab values of the older page, still found in bookmarks and notifications. */
 const LEGACY_TABS: Record<string, EmployeeTab> = { days: 'attendance', events: 'attendance', correct: 'attendance', details: 'profile' };
 
 /**
- * Everything about one employee: /admin/employees/view?id=<uuid>&tab=overview|attendance|leave|overtime|schedule|profile
+ * Everything about one employee: /admin/employees/view?id=<uuid>&tab=overview|attendance|leave|overtime|schedule|team|profile
  * [&from=<relative /admin/... URL>][&welcome=1][&edit=1] (static export, so no dynamic segment).
  */
 export default function EmployeeProfilePage() {
@@ -400,7 +401,7 @@ function ProfileFor({ id }: { id: string }) {
         <TabsList>
           {allowed.map((value) => (
             <TabsTrigger key={value} value={value}>
-              {value === 'profile' && !canManage ? p.profileReadOnly : p.tabs[value]}
+              {value === 'team' ? t.managerTeam.tab : value === 'profile' && !canManage ? p.profileReadOnly : p.tabs[value]}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -466,6 +467,10 @@ function ProfileFor({ id }: { id: string }) {
             <ScheduleTab employee={e} name={name} schedule={schedule} openAssign={openAssign} onAssignOpened={() => setOpenAssign(false)} />
           </TabsContent>
         )}
+
+        <TabsContent value="team">
+          <TeamTab employee={e} name={name} from={from} canManage={canManage} />
+        </TabsContent>
 
         <TabsContent value="profile">
           <ProfileTab

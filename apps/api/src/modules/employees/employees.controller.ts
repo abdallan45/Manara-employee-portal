@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { EmployeeDto, Paginated, PERMISSIONS } from '@workforce/shared';
+import { EmployeeDto, EmployeeTeamDto, Paginated, PERMISSIONS } from '@workforce/shared';
 import { AuthUser, CurrentUser, RequirePermissions } from '../../common/auth';
-import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto } from './employees.dto';
+import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto, UpdateEmployeeTeamDto } from './employees.dto';
 import { EmployeesService } from './employees.service';
 
 const uuid = new ParseUUIDPipe({ version: undefined });
@@ -24,6 +24,20 @@ export class EmployeesController {
   @ApiOperation({ summary: 'Get one employee' })
   get(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string): Promise<EmployeeDto> {
     return this.employees.get(user, id);
+  }
+
+  @Get(':id/team')
+  @RequirePermissions(PERMISSIONS.EMPLOYEES_READ)
+  @ApiOperation({ summary: "The employee's team as a manager: direct reports and explicitly supervised employees" })
+  team(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string): Promise<EmployeeTeamDto> {
+    return this.employees.team(user, id);
+  }
+
+  @Put(':id/team')
+  @RequirePermissions(PERMISSIONS.EMPLOYEES_MANAGE)
+  @ApiOperation({ summary: "Replace the employee's direct reports and / or the employees their login supervises" })
+  setTeam(@CurrentUser() user: AuthUser, @Param('id', uuid) id: string, @Body() dto: UpdateEmployeeTeamDto): Promise<EmployeeTeamDto> {
+    return this.employees.setTeam(user, id, dto);
   }
 
   @Post()

@@ -153,8 +153,14 @@ export function ProfileTab({ employee: e, manager, from, onEdit }: {
             </Item>
           )}
           <Item label={c.supervisors}>
-            {e.supervisors.length ? (
+            {e.supervisors.length || e.directManagerSupervisor ? (
               <span className="flex flex-wrap gap-1">
+                {e.directManagerSupervisor && (
+                  <Badge variant="outline">
+                    <bdi>{localized(locale, e.directManagerSupervisor.name, e.directManagerSupervisor.nameAr) || e.directManagerSupervisor.username}</bdi>
+                    <span className="text-muted-foreground font-normal">({t.managerTeam.directManagerChip})</span>
+                  </Badge>
+                )}
                 {e.supervisors.map((s) => (
                   <Badge key={s.userId} variant="outline">
                     <bdi>{localized(locale, s.name, s.nameAr) || s.username}</bdi>

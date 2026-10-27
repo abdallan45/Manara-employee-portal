@@ -59,6 +59,7 @@ export function as(app: INestApplication, s: WebSession) {
     get: (url: string) => request(server).get(url).set('Cookie', s.cookie),
     post: (url: string) => request(server).post(url).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf),
     patch: (url: string) => request(server).patch(url).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf),
+    put: (url: string) => request(server).put(url).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf),
     delete: (url: string) => request(server).delete(url).set('Cookie', s.cookie).set('X-CSRF-Token', s.csrf),
   };
 }

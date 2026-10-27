@@ -1,5 +1,6 @@
 // DTOs for administration endpoints. Times are ISO-8601 UTC strings; dates are YYYY-MM-DD (Asia/Amman).
 import type { PortalVisibility } from './portal';
+import type { RequestEmployeeRef } from './requests';
 import type { EmployeeSaturdayGroup, SaturdayGroup } from './rota';
 
 export interface DepartmentDto {
@@ -53,6 +54,8 @@ export interface EmployeeDto {
   effectiveSaturdayGroup: SaturdayGroup | null;
   /** Users who approve this employee's requests and see their data (in addition to department managers). */
   supervisors: SupervisorRef[];
+  /** The direct manager's login: supervises the employee automatically (not part of `supervisors`); null without one. */
+  directManagerSupervisor: SupervisorRef | null;
   isActive: boolean;
   createdAt: string;
   user: { id: string; username: string; isActive: boolean; roles: { key: string; departmentId: string | null }[]; lastLoginAt: string | null } | null;
@@ -81,6 +84,23 @@ export interface CreateEmployeeInput {
   managedDepartmentIds?: string[];
 }
 export type UpdateEmployeeInput = Partial<Omit<CreateEmployeeInput, 'password'>> & { password?: string };
+
+/** GET /employees/:id/team: who this employee (as a manager) is responsible for. */
+export interface EmployeeTeamDto {
+  /** Employees whose direct manager is this employee (supervised automatically). */
+  directReports: RequestEmployeeRef[];
+  /** Employees this employee's login supervises explicitly (project manager), direct reports excluded. */
+  supervised: RequestEmployeeRef[];
+  /** False when the employee has no login, so nothing can be supervised explicitly. */
+  hasUser: boolean;
+}
+
+/** PUT /employees/:id/team (employees.manage). Each list given replaces the current one. */
+export interface UpdateEmployeeTeamInput {
+  supervisedEmployeeIds?: string[];
+  /** Listed employees get this employee as direct manager; removed ones lose it. */
+  directReportIds?: string[];
+}
 
 
 export interface ScheduleDayDto { weekday: number; isWorkday: boolean; startMinute: number | null; endMinute: number | null; requiredMinutes: number }

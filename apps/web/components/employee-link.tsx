@@ -8,7 +8,7 @@ import { localized } from '@/lib/format';
 import { useI18n } from '@/lib/i18n/context';
 import { cn } from '@/lib/utils';
 
-export type EmployeeTab = 'overview' | 'attendance' | 'leave' | 'overtime' | 'schedule' | 'profile';
+export type EmployeeTab = 'overview' | 'attendance' | 'leave' | 'overtime' | 'schedule' | 'team' | 'profile';
 
 /** `from` must be a relative /admin/... URL (the URL contract); anything else is dropped. */
 function safeFrom(from: string | undefined): string | undefined {

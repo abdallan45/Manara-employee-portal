@@ -8,7 +8,13 @@ import { LAST_SEEN_THROTTLE_MS } from './auth.constants';
 import { generateToken, sha256Hex } from './password';
 
 export const PRINCIPAL_INCLUDE = {
-  employee: { include: { department: { select: { name: true, nameAr: true } } } },
+  employee: {
+    include: {
+      department: { select: { name: true, nameAr: true } },
+      // Direct reports: a direct manager supervises them automatically.
+      reports: { where: { isActive: true, deletedAt: null }, select: { id: true } },
+    },
+  },
   roles: { include: { role: { include: { permissions: { include: { permission: { select: { key: true } } } } } } } },
   supervising: { select: { employeeId: true } },
 } satisfies Prisma.UserInclude;
@@ -46,7 +52,7 @@ export function toAuthUser(p: Principal, sessionId: string, ip: string): AuthUse
     roles: [...roles].sort(),
     permissions,
     managedDepartmentIds: [...managed],
-    supervisedEmployeeIds: p.supervising.map((s) => s.employeeId),
+    supervisedEmployeeIds: [...new Set([...p.supervising.map((s) => s.employeeId), ...(p.employee?.reports.map((r) => r.id) ?? [])])],
     ip,
   };
 }

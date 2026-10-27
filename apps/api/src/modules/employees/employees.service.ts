@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EmployeeDto, effectiveSaturdayGroup, Paginated, PERMISSIONS, SYSTEM_ROLES, WORK_HOURS_RANGES } from '@workforce/shared';
+import { EmployeeDto, EmployeeTeamDto, effectiveSaturdayGroup, Paginated, PERMISSIONS, SYSTEM_ROLES, WORK_HOURS_RANGES } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { Db, PrismaService } from '../../common/prisma.service';
@@ -9,7 +9,8 @@ import { dateOnly } from '../../common/time';
 import { AuditService } from '../audit/audit.service';
 import { hashPassword } from '../auth/password';
 import { SessionService } from '../auth/session.service';
-import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto } from './employees.dto';
+import { EMPLOYEE_REF_SELECT, toEmployeeRef, TX_OPTIONS } from '../requests/request-common';
+import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto, UpdateEmployeeTeamDto } from './employees.dto';
 
 const EMPLOYEE_INCLUDE = {
   department: { select: { name: true, nameAr: true, saturdayGroup: true } },
@@ -17,6 +18,12 @@ const EMPLOYEE_INCLUDE = {
   supervisors: {
     include: { supervisor: { select: { id: true, username: true, employee: { select: { fullName: true, fullNameAr: true } } } } },
     orderBy: { createdAt: 'asc' },
+  },
+  manager: {
+    select: {
+      isActive: true, deletedAt: true, fullName: true, fullNameAr: true,
+      user: { select: { id: true, username: true, isActive: true, deletedAt: true } },
+    },
   },
 } satisfies Prisma.EmployeeInclude;
 
@@ -28,6 +35,13 @@ const PRIVILEGED_ROLES = new Set<string>([SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES
 const SCOPED_ROLE = SYSTEM_ROLES.DEPARTMENT_MANAGER;
 
 interface RoleGrant { roleId: string; departmentId: string | null }
+
+/** The direct manager's active login, which supervises the employee automatically; null without one. */
+function directManagerSupervisor(e: EmployeeRow): EmployeeDto['directManagerSupervisor'] {
+  const m = e.manager;
+  if (!m || !m.isActive || m.deletedAt || !m.user || !m.user.isActive || m.user.deletedAt) return null;
+  return { userId: m.user.id, username: m.user.username, name: m.fullName, nameAr: m.fullNameAr };
+}
 
 export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
   return {
@@ -51,6 +65,7 @@ export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
       userId: s.supervisor.id, username: s.supervisor.username,
       name: s.supervisor.employee?.fullName ?? null, nameAr: s.supervisor.employee?.fullNameAr ?? null,
     })),
+    directManagerSupervisor: directManagerSupervisor(e),
     isActive: e.isActive,
     createdAt: e.createdAt.toISOString(),
     user: e.user
@@ -181,7 +196,7 @@ export class EmployeesService {
     await this.assertDepartment(this.prisma, dto.departmentId);
     await this.assertManager(this.prisma, dto.managerId, null);
     const grants = await this.resolveGrants(this.prisma, roleKeys, dto.managedDepartmentIds ?? []);
-    const supervisorIds = await this.resolveSupervisors(this.prisma, dto.supervisorUserIds ?? [], null);
+    const supervisorIds = await this.resolveSupervisors(this.prisma, dto.supervisorUserIds ?? [], null, dto.managerId ?? null);
     assertHours(dto);
     const passwordHash = await hashPassword(dto.password);
 
@@ -257,7 +272,10 @@ export class EmployeesService {
     if (dto.departmentId !== undefined) await this.assertDepartment(this.prisma, dto.departmentId);
     if (dto.managerId !== undefined) await this.assertManager(this.prisma, dto.managerId, id);
     assertHours(dto);
-    const supervisorIds = dto.supervisorUserIds === undefined ? null : await this.resolveSupervisors(this.prisma, dto.supervisorUserIds, current.user?.id ?? null);
+    const nextManagerId = dto.managerId === undefined ? current.managerId : dto.managerId;
+    const supervisorIds = dto.supervisorUserIds === undefined
+      ? null
+      : await this.resolveSupervisors(this.prisma, dto.supervisorUserIds, current.user?.id ?? null, nextManagerId);
     if (!current.user && (dto.username !== undefined || dto.password !== undefined || rolesChanging) && !(dto.username && dto.password)) {
       throw invalid('username', 'This employee has no login yet; provide both username and password to create one');
     }
@@ -286,6 +304,11 @@ export class EmployeesService {
         if (supervisorIds) {
           await tx.employeeSupervisor.deleteMany({ where: { employeeId: id, supervisorUserId: { notIn: supervisorIds } } });
           await tx.employeeSupervisor.createMany({ data: supervisorIds.map((supervisorUserId) => ({ supervisorUserId, employeeId: id })), skipDuplicates: true });
+        }
+        if (dto.managerId && dto.managerId !== current.managerId) {
+          // The new direct manager supervises automatically; an explicit row would outlive a later change.
+          const managerUser = await tx.user.findUnique({ where: { employeeId: dto.managerId }, select: { id: true } });
+          if (managerUser) await tx.employeeSupervisor.deleteMany({ where: { employeeId: id, supervisorUserId: managerUser.id } });
         }
 
         let userId = current.user?.id ?? null;
@@ -320,6 +343,120 @@ export class EmployeesService {
     } catch (err) {
       throw this.mapUniqueViolation(err);
     }
+  }
+
+  /** Direct reports and explicitly supervised employees of `id` (as a manager), limited to the viewer's scope. */
+  async team(user: AuthUser, id: string): Promise<EmployeeTeamDto> {
+    const scope = this.readScope(user);
+    const row = await this.prisma.employee.findFirst({ where: { id, deletedAt: null }, select: { id: true, departmentId: true } });
+    if (!row || !inScope(scope, row)) throw AppError.notFound('Employee not found');
+    return this.loadTeam(this.prisma, id, scope);
+  }
+
+  private async loadTeam(db: Db, id: string, scope: Scope | null): Promise<EmployeeTeamDto> {
+    const visible = scope === null ? {} : employeeScopeWhere(scope);
+    const owner = await db.user.findFirst({ where: { employeeId: id, isActive: true, deletedAt: null }, select: { id: true } });
+    const [directReports, supervised] = await Promise.all([
+      db.employee.findMany({
+        where: { AND: [{ managerId: id, deletedAt: null }, visible] }, select: EMPLOYEE_REF_SELECT, orderBy: { employeeCode: 'asc' },
+      }),
+      owner
+        ? db.employee.findMany({
+            where: {
+              AND: [
+                { deletedAt: null, supervisors: { some: { supervisorUserId: owner.id } } },
+                { OR: [{ managerId: null }, { managerId: { not: id } }] },
+                visible,
+              ],
+            },
+            select: EMPLOYEE_REF_SELECT, orderBy: { employeeCode: 'asc' },
+          })
+        : Promise.resolve([]),
+    ]);
+    return { directReports: directReports.map(toEmployeeRef), supervised: supervised.map(toEmployeeRef), hasUser: owner !== null };
+  }
+
+  /**
+   * Replaces who `id` manages: `directReportIds` sets (or clears) their direct manager, `supervisedEmployeeIds`
+   * the explicit supervisor rows of their login. Direct reports are supervised automatically, so they are
+   * never stored as explicit rows.
+   */
+  async setTeam(actor: AuthUser, id: string, dto: UpdateEmployeeTeamDto): Promise<EmployeeTeamDto> {
+    const owner = await this.prisma.employee.findFirst({
+      where: { id, deletedAt: null }, select: { id: true, user: { select: { id: true, isActive: true, deletedAt: true } } },
+    });
+    if (!owner) throw AppError.notFound('Employee not found');
+    const ownerUserId = owner.user && owner.user.isActive && !owner.user.deletedAt ? owner.user.id : null;
+
+    const currentReportIds = (await this.prisma.employee.findMany({ where: { managerId: id, deletedAt: null }, select: { id: true } })).map((r) => r.id);
+    const currentSupervised = ownerUserId
+      ? (await this.prisma.employeeSupervisor.findMany({ where: { supervisorUserId: ownerUserId }, select: { employeeId: true } })).map((r) => r.employeeId)
+      : [];
+
+    let addReports: string[] = [];
+    let removeReports: string[] = [];
+    if (dto.directReportIds !== undefined) {
+      const next = [...new Set(dto.directReportIds)];
+      if (next.includes(id)) throw invalid('directReportIds', 'An employee cannot report to themselves');
+      addReports = next.filter((e) => !currentReportIds.includes(e));
+      removeReports = currentReportIds.filter((e) => !next.includes(e));
+      await this.assertTeamMembers('directReportIds', addReports);
+      if (addReports.length) {
+        const above = await this.managerChain(this.prisma, id);
+        if (addReports.some((e) => above.includes(e))) {
+          throw invalid('directReportIds', 'One of these employees is above this manager in the reporting line (it would loop)');
+        }
+      }
+      await this.assertTeamTargetsEditable(actor, [...addReports, ...removeReports]);
+    }
+    const reportIds = dto.directReportIds === undefined ? currentReportIds : [...new Set(dto.directReportIds)];
+
+    let nextSupervised: string[] | null = null;
+    if (dto.supervisedEmployeeIds !== undefined) {
+      const wanted = [...new Set(dto.supervisedEmployeeIds)];
+      if (wanted.includes(id)) throw invalid('supervisedEmployeeIds', 'An employee cannot supervise themselves');
+      // Direct reports are supervised automatically.
+      nextSupervised = wanted.filter((e) => !reportIds.includes(e));
+      if (nextSupervised.length && !ownerUserId) {
+        throw invalid('supervisedEmployeeIds', 'This employee has no active login, so they cannot supervise anyone');
+      }
+      await this.assertTeamMembers('supervisedEmployeeIds', nextSupervised.filter((e) => !currentSupervised.includes(e)));
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const before = { directReportIds: currentReportIds, supervisedEmployeeIds: currentSupervised };
+      if (addReports.length) await tx.employee.updateMany({ where: { id: { in: addReports } }, data: { managerId: id } });
+      if (removeReports.length) await tx.employee.updateMany({ where: { id: { in: removeReports }, managerId: id }, data: { managerId: null } });
+      if (ownerUserId && (nextSupervised || addReports.length)) {
+        // New direct reports lose their now-redundant explicit row.
+        const keep = (nextSupervised ?? currentSupervised).filter((e) => !reportIds.includes(e));
+        await tx.employeeSupervisor.deleteMany({ where: { supervisorUserId: ownerUserId, employeeId: { notIn: keep } } });
+        await tx.employeeSupervisor.createMany({ data: keep.map((employeeId) => ({ supervisorUserId: ownerUserId, employeeId })), skipDuplicates: true });
+      }
+      const team = await this.loadTeam(tx, id, null);
+      await this.audit.record(tx, {
+        actorUserId: actor.userId, action: 'EMPLOYEE_TEAM_UPDATE', entityType: 'Employee', entityId: id,
+        before, after: { directReportIds: team.directReports.map((e) => e.id), supervisedEmployeeIds: team.supervised.map((e) => e.id) },
+        ipAddress: actor.ip,
+      });
+      return team;
+    }, TX_OPTIONS);
+  }
+
+  /** Employees newly added to a team must exist and be active. */
+  private async assertTeamMembers(field: string, ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const found = await this.prisma.employee.count({ where: { id: { in: ids }, deletedAt: null, isActive: true } });
+    if (found !== ids.length) throw invalid(field, 'One or more employees do not exist or are inactive');
+  }
+
+  /** Changing the direct manager of an administrator account needs the same rights as editing it. */
+  private async assertTeamTargetsEditable(actor: AuthUser, ids: string[]): Promise<void> {
+    if (!ids.length || actor.permissions.has(PERMISSIONS.ROLES_MANAGE)) return;
+    const users = await this.prisma.user.findMany({
+      where: { employeeId: { in: ids } }, select: { id: true, roles: { select: { role: { select: { key: true } } } } },
+    });
+    for (const u of users) this.assertCanTouchTarget(actor, new Set(u.roles.map((r) => r.role.key)), u.id === actor.userId);
   }
 
   async setActive(actor: AuthUser, id: string, active: boolean): Promise<EmployeeDto> {
@@ -390,12 +527,35 @@ export class EmployeesService {
     if (managerId === selfId) throw invalid('managerId', 'An employee cannot be their own manager');
     const mgr = await db.employee.findFirst({ where: { id: managerId, deletedAt: null }, select: { id: true } });
     if (!mgr) throw invalid('managerId', 'Manager does not exist');
+    if (selfId && (await this.managerChain(db, managerId)).includes(selfId)) {
+      throw invalid('managerId', 'This manager already reports to the employee (the reporting line would loop)');
+    }
   }
 
-  /** Supervisors must be active users, never the employee's own login. */
-  private async resolveSupervisors(db: Db, userIds: string[], ownUserId: string | null): Promise<string[]> {
-    const ids = [...new Set(userIds)];
+  /** The managers above an employee, nearest first (stops at a loop left by older data). */
+  private async managerChain(db: Db, employeeId: string): Promise<string[]> {
+    const rows = await db.$queryRaw<{ id: string }[]>`
+      WITH RECURSIVE chain(id, depth, path) AS (
+        SELECT manager_id, 1, ARRAY[id] FROM employees WHERE id = ${employeeId}::uuid AND manager_id IS NOT NULL
+        UNION ALL
+        SELECT e.manager_id, c.depth + 1, c.path || e.id FROM employees e JOIN chain c ON e.id = c.id
+        WHERE e.manager_id IS NOT NULL AND NOT e.id = ANY(c.path) AND c.depth < 100
+      )
+      SELECT id::text AS id FROM chain ORDER BY depth`;
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Supervisors must be active users, never the employee's own login. The direct manager's login supervises
+   * automatically, so listing it is redundant and it is dropped.
+   */
+  private async resolveSupervisors(db: Db, userIds: string[], ownUserId: string | null, managerId: string | null): Promise<string[]> {
+    let ids = [...new Set(userIds)];
     if (ownUserId && ids.includes(ownUserId)) throw invalid('supervisorUserIds', 'An employee cannot supervise themselves');
+    if (managerId && ids.length) {
+      const managerUser = await db.user.findUnique({ where: { employeeId: managerId }, select: { id: true } });
+      if (managerUser) ids = ids.filter((u) => u !== managerUser.id);
+    }
     if (!ids.length) return [];
     const found = await db.user.count({ where: { id: { in: ids }, isActive: true, deletedAt: null } });
     if (found !== ids.length) throw invalid('supervisorUserIds', 'One or more supervisors are not active users');

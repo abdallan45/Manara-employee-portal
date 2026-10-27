@@ -5,6 +5,7 @@ import * as adminWorkflows from './admin-workflows';
 import * as approvalChains from './approval-chains';
 import * as employeeHub from './employee-hub';
 import * as employeeSelfService from './employee-self-service';
+import * as managerTeam from './manager-team';
 import * as mascotAdmin from './mascot-admin';
 import * as navFindability from './nav-findability';
 import * as portalVisibility from './portal-visibility';
@@ -22,6 +23,7 @@ export const areasEn = {
   accountSecurity: accountSecurity.en,
   approvalChains: approvalChains.en,
   saturdayRota: saturdayRota.en,
+  managerTeam: managerTeam.en,
 };
 
 export const areasAr: typeof areasEn = {
@@ -35,4 +37,5 @@ export const areasAr: typeof areasEn = {
   accountSecurity: accountSecurity.ar,
   approvalChains: approvalChains.ar,
   saturdayRota: saturdayRota.ar,
+  managerTeam: managerTeam.ar,
 };

@@ -5,7 +5,7 @@ export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 export type RequestKind = 'LEAVE' | 'OVERTIME' | 'CORRECTION';
 
 /**
- * One step of an approval chain: MANAGER_STEP (the employee's supervisors / project managers and the managers
+ * One step of an approval chain: MANAGER_STEP (the employee's direct manager, supervisors / project managers and the managers
  * of their department) or a role key (e.g. HR_ADMIN, GENERAL_MANAGER). Steps run in order; each needs a
  * different person, never the requester.
  */
