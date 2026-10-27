@@ -16,13 +16,13 @@ function sum(days: DayMetrics[], pick: (d: DayMetrics) => number): number {
   return days.reduce((acc, d) => acc + pick(d), 0);
 }
 
-/** Muted "Day off" / "يوم عطلة" badge for days that are not scheduled workdays. */
-export function DayOffBadge({ className }: { className?: string }) {
+/** Muted "Day off" / "يوم عطلة" badge for days that are not scheduled workdays; `rotaOff` names the rota Saturday off. */
+export function DayOffBadge({ rotaOff, className }: { rotaOff?: boolean; className?: string }) {
   const { t } = useI18n();
   return (
     <span className={cn('text-muted-foreground inline-flex items-center gap-1 rounded-full border border-tint/10 bg-tint/[0.04] px-2 py-0.5 text-xs font-medium whitespace-nowrap', className)}>
       <Moon className="size-3" aria-hidden />
-      {t.employeeSelfService.dayOff}
+      {rotaOff ? t.saturdayRota.offBadge : t.employeeSelfService.dayOff}
     </span>
   );
 }
@@ -73,11 +73,12 @@ export function DayMetricsTable({ days, loading, error, onRetry, compact = false
   const status = (d: DayMetrics) => {
     const off = !d.scheduled.isWorkday;
     // A plain day off says so once; a day off with work on it shows both.
-    if (off && d.status === 'NOT_SCHEDULED') return <DayOffBadge />;
+    const rotaOff = d.saturdayRota === 'OFF';
+    if (off && d.status === 'NOT_SCHEDULED') return <DayOffBadge rotaOff={rotaOff} />;
     return (
       <span className="inline-flex flex-wrap items-center gap-1">
         <DayStatusBadge status={d.status} remote={d.remote} />
-        {off && <DayOffBadge />}
+        {off && <DayOffBadge rotaOff={rotaOff} />}
       </span>
     );
   };

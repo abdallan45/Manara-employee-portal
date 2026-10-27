@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
+import { localDate } from '../src/common/time';
 import { hashPassword } from '../src/modules/auth/password';
 import { GeofenceService } from '../src/modules/offices/geofence.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
@@ -158,7 +159,7 @@ describe('attendance over HTTP', () => {
     expect((await http().get('/api/v1/notifications/unread-count').set(auth)).body).toEqual({ count: 0 });
   });
 
-  it('daily hours: 9 h incl. 1 h break by default, employee override, company setting', async () => {
+  it('daily hours: 9 h incl. 1 h break by default, employee override, company rule', async () => {
     const admin = await makeEmployee({ name: 'Hala Root', role: 'SUPER_ADMIN', passwordHash });
     const res = await http().post('/api/v1/auth/login').send({ username: admin.user.username, password: PASSWORD, client: 'MOBILE' });
     const auth = { Authorization: `Bearer ${res.body.accessToken}` };
@@ -173,9 +174,9 @@ describe('attendance over HTTP', () => {
 
     expect(await today()).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60, breakAllowanceLeftMinutes: 60, scheduled: { requiredMinutes: 540 } });
 
-    expect((await http().patch('/api/v1/settings/attendance.dailyRequiredMinutes').set(auth).send({ value: 20 })).status).toBe(400);
-    expect((await http().patch('/api/v1/settings/attendance.dailyRequiredMinutes').set(auth).send({ value: 600 })).status).toBe(200);
-    expect((await http().patch('/api/v1/settings/attendance.includedBreakMinutes').set(auth).send({ value: 45 })).status).toBe(200);
+    const effectiveFrom = localDate(new Date());
+    expect((await http().post('/api/v1/settings/work-hours').set(auth).send({ effectiveFrom, dailyRequiredMinutes: 20, includedBreakMinutes: 0 })).status).toBe(400);
+    expect((await http().post('/api/v1/settings/work-hours').set(auth).send({ effectiveFrom, dailyRequiredMinutes: 600, includedBreakMinutes: 45 })).status).toBe(201);
     expect(await today()).toMatchObject({ requiredMinutes: 600, includedBreakMinutes: 45, breakAllowanceLeftMinutes: 45 });
 
     await prisma.employee.update({ where: { id: admin.employee.id }, data: { dailyRequiredMinutes: 480, includedBreakMinutes: 30 } });

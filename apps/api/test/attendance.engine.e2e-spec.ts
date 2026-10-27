@@ -343,19 +343,40 @@ describe('schedule resolution', () => {
     expect(await resolver.resolve(employee.id, dept.id, date)).toMatchObject({ isHoliday: true, holidayName: 'Founders Day' });
   });
 
-  it('daily hours: employee override > settings; schedule day hours are ignored', async () => {
+  it('daily hours: employee override > company rule; schedule day hours are ignored', async () => {
     const resolver = app.get(ScheduleResolver);
     const { employee, user } = await makeEmployee({ name: 'Rami Hillcrest' });
     const date = '2026-10-15';
     expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60, startMinute: 480, endMinute: 1020 });
     expect((await resolver.resolve(employee.id, null, '2026-10-16')).rule).toMatchObject({ isWorkday: false, requiredMinutes: 0 });
 
-    await settings.update('attendance.dailyRequiredMinutes', 480, user.id, '10.0.0.1');
-    await settings.update('attendance.includedBreakMinutes', 0, user.id, '10.0.0.1');
+    await prisma.workHoursRule.create({ data: { effectiveFrom: new Date('2000-01-01'), dailyRequiredMinutes: 480, includedBreakMinutes: 0, createdById: user.id } });
     expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 480, includedBreakMinutes: 0 });
 
     await prisma.employee.update({ where: { id: employee.id }, data: { dailyRequiredMinutes: 360, includedBreakMinutes: 30 } });
     expect((await resolver.resolve(employee.id, null, date)).rule).toMatchObject({ requiredMinutes: 360, includedBreakMinutes: 30 });
+  });
+
+  it('company hours follow the rule in force on each day', async () => {
+    const resolver = app.get(ScheduleResolver);
+    const { employee } = await makeEmployee({ name: 'Rami Hillcrest' });
+    await prisma.workHoursRule.createMany({ data: [
+      { effectiveFrom: new Date('2000-01-01'), dailyRequiredMinutes: 480, includedBreakMinutes: 0 },
+      { effectiveFrom: new Date('2026-10-28'), dailyRequiredMinutes: 540, includedBreakMinutes: 60 },
+      { effectiveFrom: new Date('2026-11-05'), dailyRequiredMinutes: 420, includedBreakMinutes: 30 },
+    ] });
+    // One context over the whole range: each day picks its own rule.
+    const ctx = await resolver.load([{ id: employee.id, departmentId: null }], '2026-10-27', '2026-11-05');
+    const emp = { id: employee.id, departmentId: null };
+    expect(ctx.day(emp, '2026-10-27').rule).toMatchObject({ isWorkday: true, requiredMinutes: 480, includedBreakMinutes: 0 });
+    expect(ctx.day(emp, '2026-10-28').rule).toMatchObject({ isWorkday: true, requiredMinutes: 540, includedBreakMinutes: 60 });
+    expect(ctx.day(emp, '2026-11-04').rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60 });
+    expect(ctx.day(emp, '2026-11-05').rule).toMatchObject({ requiredMinutes: 420, includedBreakMinutes: 30 });
+    expect((await resolver.resolve(employee.id, null, '1999-12-30')).rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60 });
+    // Employee overrides are not dated: they win on every day.
+    await prisma.employee.update({ where: { id: employee.id }, data: { dailyRequiredMinutes: 360 } });
+    expect((await resolver.resolve(employee.id, null, '2026-10-27')).rule).toMatchObject({ requiredMinutes: 360, includedBreakMinutes: 0 });
+    expect((await resolver.resolve(employee.id, null, '2026-10-28')).rule).toMatchObject({ requiredMinutes: 360, includedBreakMinutes: 60 });
   });
 });
 

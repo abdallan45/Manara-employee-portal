@@ -1,5 +1,5 @@
 // Pure attendance math: one employee, one work date. No I/O; every other module delegates here.
-import type { DayMetrics, DayStatus, ScheduleType } from '@workforce/shared';
+import type { DayMetrics, DayStatus, SaturdayRotaDay, ScheduleType } from '@workforce/shared';
 import { localDate, localDateTime, TIMEZONE } from '../../common/time';
 
 const MINUTE = 60_000;
@@ -61,6 +61,11 @@ export interface DayCalcInput {
   leaveWindows?: { startAt: Date; endAt: Date }[];
   /** Approved remote work: only marks the day (DayMetrics.remote); requirement, lateness and absence are unchanged. */
   remote?: boolean;
+  /**
+   * Saturday rota day (ResolvedDay.saturdayRota). WORKING days arrive as ordinary workdays; on OFF days the
+   * schedule rule is already a day off and time worked is recorded but never counts as extra.
+   */
+  saturdayRota?: SaturdayRotaDay | null;
   zone?: string;
 }
 
@@ -194,7 +199,8 @@ export function computeDayMetrics(input: DayCalcInput): DayMetrics {
   const complete = dayPassed || checkedOut;
 
   const missingMinutes = complete ? Math.max(0, requiredMinutes - netWorkMinutes) : 0;
-  const extraMinutes = Math.max(0, netWorkMinutes - requiredMinutes);
+  const saturdayRota = isHoliday ? null : input.saturdayRota ?? null;
+  const extraMinutes = saturdayRota === 'OFF' ? 0 : Math.max(0, netWorkMinutes - requiredMinutes);
 
   let lateMinutes = 0;
   let earlyDepartureMinutes = 0;
@@ -273,6 +279,7 @@ export function computeDayMetrics(input: DayCalcInput): DayMetrics {
     missingPunch,
     isLate: lateMinutes > 0,
     remote: !!input.remote && isScheduledDay,
+    saturdayRota,
   };
 }
 

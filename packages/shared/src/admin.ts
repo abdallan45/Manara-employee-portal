@@ -1,10 +1,18 @@
 // DTOs for administration endpoints. Times are ISO-8601 UTC strings; dates are YYYY-MM-DD (Asia/Amman).
 import type { PortalVisibility } from './portal';
+import type { EmployeeSaturdayGroup, SaturdayGroup } from './rota';
 
 export interface DepartmentDto {
   id: string; code: string; name: string; nameAr: string | null;
   parentId: string | null; employeeCount: number;
+  /** Saturday rota group of the department's employees; null = no rota. */
+  saturdayGroup: SaturdayGroup | null;
 }
+/** POST /departments (departments.manage); PATCH takes any subset. */
+export interface CreateDepartmentInput {
+  code: string; name: string; nameAr?: string | null; parentId?: string | null; saturdayGroup?: SaturdayGroup | null;
+}
+export type UpdateDepartmentInput = Partial<CreateDepartmentInput>;
 
 export interface RoleDto {
   id: string; key: string; name: string; nameAr: string | null; description: string | null; isSystem: boolean; permissions: string[];
@@ -39,6 +47,10 @@ export interface EmployeeDto {
   dailyRequiredMinutes: number | null;
   /** Personal break allowance inside that requirement; null = the company default. */
   includedBreakMinutes: number | null;
+  /** Own Saturday rota group: A | B, NONE = no rota, null = the department's group. */
+  saturdayGroup: EmployeeSaturdayGroup | null;
+  /** Group that applies after the department default is resolved; null = Saturdays follow the schedule. */
+  effectiveSaturdayGroup: SaturdayGroup | null;
   /** Users who approve this employee's requests and see their data (in addition to department managers). */
   supervisors: SupervisorRef[];
   isActive: boolean;
@@ -58,6 +70,7 @@ export interface CreateEmployeeInput {
   hireDate?: string; // YYYY-MM-DD
   dailyRequiredMinutes?: number | null;
   includedBreakMinutes?: number | null;
+  saturdayGroup?: EmployeeSaturdayGroup | null;
   /** User ids of the employee's supervisors (project managers); replaces the list on update. */
   supervisorUserIds?: string[];
   username: string;
@@ -76,7 +89,7 @@ export interface ScheduleDto {
   coreStartMinute: number | null; coreEndMinute: number | null; isDefault: boolean; days: ScheduleDayDto[];
   /**
    * Legacy, no longer used by the calculations: the daily requirement and break allowance come from the
-   * employee (dailyRequiredMinutes / includedBreakMinutes) or the company defaults in settings. Schedules
+   * employee (dailyRequiredMinutes / includedBreakMinutes) or the company work-hours rule for the day. Schedules
    * decide which days are workdays and the start/end times (lateness, early departure).
    */
   includedBreakMinutes: number;
@@ -105,10 +118,6 @@ export const SETTING_DEFAULTS = {
   'attendance.maxLocationAccuracyMeters': 150,
   /** An open session older than this is treated as a missing check-out. */
   'attendance.maxOpenSessionHours': 18,
-  /** Default time an employee must spend at work per workday, minutes, break included (9 h). */
-  'attendance.dailyRequiredMinutes': 540,
-  /** Default break inside that time, minutes: counted as work whether taken or not; only longer breaks are deducted. */
-  'attendance.includedBreakMinutes': 60,
   /** Approval chains for overtime and corrections (leave types have their own): 'MANAGER' or role keys, in order. */
   'approvals.overtimeSteps': ['MANAGER'] as string[],
   'approvals.correctionSteps': ['MANAGER'] as string[],
@@ -123,14 +132,14 @@ export const SETTING_DEFAULTS = {
   'mascot.enabled': true as boolean,
   /** Language Nouria speaks for everyone: auto (each viewer's interface language), ar or en. */
   'mascot.language': 'auto' as 'auto' | 'ar' | 'en',
+  /** Saturday (YYYY-MM-DD) on which group A works first; the groups then alternate weekly. null = no rota. */
+  'attendance.saturdayRotaStart': null as string | null,
 } as const;
 export type SettingKey = keyof typeof SETTING_DEFAULTS;
 
 /** Allowed integer ranges (inclusive) of the numeric settings; the API validates with the same values. */
 export const SETTING_RANGES = {
   'attendance.maxOpenSessionHours': { min: 1, max: 48 },
-  'attendance.dailyRequiredMinutes': { min: 30, max: 1440 },
-  'attendance.includedBreakMinutes': { min: 0, max: 240 },
   'attendance.maxLocationAccuracyMeters': { min: 10, max: 2000 },
   'auth.maxFailedLogins': { min: 3, max: 50 },
   'auth.lockoutMinutes': { min: 1, max: 1440 },
@@ -138,6 +147,33 @@ export const SETTING_RANGES = {
   'auth.idleMinutes': { min: 0, max: 1440 },
 } as const satisfies Partial<Record<SettingKey, { min: number; max: number }>>;
 export type RangedSettingKey = keyof typeof SETTING_RANGES;
+
+/** Limits of a work-hours rule and of the per-employee overrides (minutes). */
+export const WORK_HOURS_RANGES = {
+  dailyRequiredMinutes: { min: 30, max: 1440 },
+  includedBreakMinutes: { min: 0, max: 240 },
+} as const;
+
+/**
+ * Company default daily requirement (break included) and break allowance from effectiveFrom on.
+ * A day uses the rule with the latest effectiveFrom on or before it; employee overrides still win.
+ * The break is counted as work whether taken or not; only longer breaks are deducted.
+ */
+export interface WorkHoursRuleDto {
+  id: string;
+  effectiveFrom: string; // YYYY-MM-DD
+  dailyRequiredMinutes: number;
+  includedBreakMinutes: number;
+  createdAt: string;
+}
+/** Company hours in force today (GET /settings/work-hours/current). */
+export type CurrentWorkHoursDto = Pick<WorkHoursRuleDto, 'effectiveFrom' | 'dailyRequiredMinutes' | 'includedBreakMinutes'>;
+/** Creates a rule, or replaces the one with the same effectiveFrom. */
+export interface CreateWorkHoursRuleInput {
+  effectiveFrom: string; // YYYY-MM-DD
+  dailyRequiredMinutes: number;
+  includedBreakMinutes: number;
+}
 
 /** One-click demo login entry (GET /auth/demo/accounts, only when DEMO_MODE=true). */
 export interface DemoAccountDto { username: string; displayName: string; displayNameAr: string | null; roles: string[] }

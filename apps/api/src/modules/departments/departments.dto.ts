@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, IsUUID, Length, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, Length, Matches, MaxLength } from 'class-validator';
+import { SATURDAY_GROUPS, type SaturdayGroup } from '@workforce/shared';
 
 const trimUpper = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toUpperCase() : value);
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -22,6 +23,10 @@ export class CreateDepartmentDto {
   @ApiPropertyOptional({ format: 'uuid', nullable: true })
   @Transform(emptyToNull) @IsOptional() @IsUUID()
   parentId?: string | null;
+
+  @ApiPropertyOptional({ enum: SATURDAY_GROUPS, nullable: true, description: 'Saturday rota group; null = no rota' })
+  @Transform(emptyToNull) @IsOptional() @IsIn(SATURDAY_GROUPS)
+  saturdayGroup?: SaturdayGroup | null;
 }
 
 export class UpdateDepartmentDto extends PartialType(CreateDepartmentDto) {}

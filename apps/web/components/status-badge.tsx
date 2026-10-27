@@ -44,21 +44,28 @@ function Dot({ tone, pulse }: { tone: Tone; pulse?: boolean }) {
 
 const base = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap';
 
-/** Day status; `remote` (DayMetrics.remote) adds the Remote badge next to it. */
-export function DayStatusBadge({ status, remote, pulse, className }: { status: DayStatus; remote?: boolean; pulse?: boolean; className?: string }) {
+/**
+ * Day status; `remote` (DayMetrics.remote) adds the Remote badge next to it. `rotaOff` (DayMetrics.saturdayRota
+ * is OFF) names a not-scheduled day as the rota Saturday off and adds that note next to a status of work done.
+ */
+export function DayStatusBadge({ status, remote, rotaOff, pulse, className }: {
+  status: DayStatus; remote?: boolean; rotaOff?: boolean; pulse?: boolean; className?: string;
+}) {
   const { t } = useI18n();
   const tone = DAY_TONE[status];
   const badge = (
     <span className={cn(base, TONE_CLASS[tone], !remote && className)}>
       <Dot tone={tone} pulse={pulse} />
-      {t.dayStatus[status]}
+      {rotaOff && status === 'NOT_SCHEDULED' ? t.saturdayRota.offBadge : t.dayStatus[status]}
     </span>
   );
-  if (!remote) return badge;
+  const rotaNote = rotaOff && status !== 'NOT_SCHEDULED';
+  if (!remote && !rotaNote) return badge;
   return (
     <span className={cn('inline-flex flex-wrap items-center gap-1', className)}>
       {badge}
-      <RemoteBadge />
+      {remote && <RemoteBadge />}
+      {rotaNote && <span className={cn(base, TONE_CLASS.none)}>{t.saturdayRota.offBadge}</span>}
     </span>
   );
 }

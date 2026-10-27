@@ -73,6 +73,7 @@ export class AttendanceMetricsService {
           workDate, schedule: resolved.rule, isHoliday: resolved.isHoliday,
           sessions: bucket?.sessions ?? [], breaks: bucket?.breaks ?? [], now,
           onLeave: leave.onLeave, leaveMinutes: leave.leaveMinutes, leaveWindows: leave.leaveWindows, remote: leave.remote,
+          saturdayRota: resolved.saturdayRota,
         });
       }));
     }

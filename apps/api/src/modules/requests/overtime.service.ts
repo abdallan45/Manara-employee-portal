@@ -3,7 +3,7 @@ import { Prisma, type OvertimePolicy, type RequestStatus } from '@prisma/client'
 import {
   DIRECT_STEP, MANAGER_STEP, PERMISSIONS, REQUEST_NOTIFICATION_TYPES,
   type CreateOvertimeRequestInput, type DirectOvertimeInput, type DirectOvertimeResultDto, type OvertimeCandidateDto, type OvertimeCompensation,
-  type OvertimeKind, type OvertimePolicyDto, type OvertimeRequestDto,
+  type OvertimeKind, type OvertimePolicyDto, type OvertimeRequestDto, type SaturdayRotaDay,
   type UpdateOvertimePolicyInput,
 } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
@@ -47,6 +47,13 @@ function assertMayApproveDirectly(approver: Approver, chain: string[]): void {
   if (approver.companyWide || approver.superAdmin) return;
   if (chain.length === 1 && chain[0] === MANAGER_STEP) return;
   throw AppError.forbidden('APPROVAL_NOT_ALLOWED', 'Overtime needs further approvals after yours; approve the request in the Approval Center instead');
+}
+
+/** The employee's rota Saturday off is a contract day: working it is not overtime. */
+function assertNotContractDay(rota: SaturdayRotaDay | null, workDate: string): void {
+  if (rota === 'OFF') {
+    throw AppError.conflict('OVERTIME_CONTRACT_DAY', 'This Saturday is part of the contract (rota Saturday off); working it is not overtime', { workDate });
+  }
 }
 
 @Injectable()
@@ -139,6 +146,7 @@ export class OvertimeService {
       throw AppError.badRequest('OVERTIME_BELOW_MINIMUM', `Overtime requests start at ${policy.minimumMinutes} minutes`, { minimumMinutes: policy.minimumMinutes });
     }
     const resolved = (await this.resolver.load([employee], workDate, workDate)).day(employee, workDate);
+    assertNotContractDay(resolved.saturdayRota, workDate);
     const kind = overtimeKind(resolved.rule.isWorkday, resolved.isHoliday);
     if (!isPreApproval) {
       const extra = (await this.recordedExtra([{ employeeId, workDate: dateOnly.toDb(workDate) }], new Map([[employeeId, employee]]), today)).get(`${employeeId}|${workDate}`) ?? 0;
@@ -317,6 +325,8 @@ export class OvertimeService {
     const out: OvertimeCandidateDto[] = [];
     for (const e of employees) {
       for (const d of days.get(e.id) ?? []) {
+        // The employee's rota Saturday off is part of the contract: time worked there is never overtime.
+        if (d.saturdayRota === 'OFF') continue;
         const r = byDay.get(`${e.id}|${d.workDate}`);
         // A few minutes past the end of the day are not overtime (below the policy minimum), unless already requested.
         if (d.extraMinutes < policy.minimumMinutes && !r) continue;
@@ -356,6 +366,8 @@ export class OvertimeService {
           throw AppError.forbidden('APPROVAL_NOT_ALLOWED', 'This employee is outside your approval scope');
         }
         if (workDate > addDays(today, MAX_DAYS_AHEAD) || workDate < addDays(today, -MAX_DAYS_BACK)) throw invalidField('workDate', 'workDate is out of range');
+        const resolved = (await this.resolver.load([employee], workDate, workDate)).day(employee, workDate);
+        assertNotContractDay(resolved.saturdayRota, workDate);
         const recorded = workDate < today
           ? (await this.recordedExtra([{ employeeId: employee.id, workDate: dateOnly.toDb(workDate) }], new Map([[employee.id, employee]]), today)).get(`${employee.id}|${workDate}`) ?? 0
           : null;
@@ -364,7 +376,6 @@ export class OvertimeService {
           throw AppError.badRequest('OVERTIME_BELOW_MINIMUM', `Overtime starts at ${policy.minimumMinutes} minutes`, { minimumMinutes: policy.minimumMinutes, recordedExtraMinutes: recorded });
         }
         const approvedMinutes = approvedOvertimeMinutes(minutes, recorded);
-        const resolved = (await this.resolver.load([employee], workDate, workDate)).day(employee, workDate);
         const kind = overtimeKind(resolved.rule.isWorkday, resolved.isHoliday);
         const id = await this.prisma.$transaction(async (tx) => {
           const now = await lockEmployee(tx, employee.id);

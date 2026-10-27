@@ -1,7 +1,8 @@
 import { computeDayMetrics, sumPeriod, type CalcBreak, type CalcSession, type DayCalcInput, type ScheduleDayRule } from './calc';
 import { localDateTime } from '../../common/time';
 import { computeLeaveSpan } from '../requests/leave-math';
-import { BUILT_IN_SCHEDULE, effectiveHours, ruleFor, type DailyHours } from '../schedules/schedule-resolver';
+import { BUILT_IN_SCHEDULE, effectiveHours, ruleFor, ScheduleContext, type DailyHours } from '../schedules/schedule-resolver';
+import { ruleOn } from '../settings/work-hours.service';
 
 const D = '2026-10-15'; // a Thursday
 const at = (hm: string, date = D) => {
@@ -307,7 +308,7 @@ describe('computeDayMetrics - partial-day leave windows', () => {
   });
 });
 
-describe('daily hours from the employee or the settings', () => {
+describe('daily hours from the employee or the company rule', () => {
   const company: DailyHours = { requiredMinutes: 540, includedBreakMinutes: 60 };
   // Built-in schedule: Sun–Thu 08:00–17:00; D is a Thursday.
   const rule = (hours: DailyHours) => ruleFor(BUILT_IN_SCHEDULE, D, hours);
@@ -324,6 +325,23 @@ describe('daily hours from the employee or the settings', () => {
     expect(effectiveHours(company, { dailyRequiredMinutes: null, includedBreakMinutes: 30 })).toEqual({ requiredMinutes: 540, includedBreakMinutes: 30 });
     expect(effectiveHours({ requiredMinutes: 420, includedBreakMinutes: 0 }, null)).toEqual({ requiredMinutes: 420, includedBreakMinutes: 0 });
     expect(effectiveHours(company, { dailyRequiredMinutes: 30, includedBreakMinutes: 60 })).toEqual({ requiredMinutes: 30, includedBreakMinutes: 30 });
+  });
+
+  it('company rule by date: the latest rule on or before the day', () => {
+    const rules = [
+      { effectiveFrom: '2000-01-01', requiredMinutes: 480, includedBreakMinutes: 0 },
+      { effectiveFrom: '2026-10-28', requiredMinutes: 540, includedBreakMinutes: 60 },
+    ];
+    expect(ruleOn(rules, '1999-12-31')).toBeNull();
+    expect(ruleOn(rules, '2026-10-27')).toBe(rules[0]);
+    expect(ruleOn(rules, '2026-10-28')).toBe(rules[1]);
+    expect(ruleOn(rules, '2030-01-01')).toBe(rules[1]);
+    // Unsorted input is sorted by the context; no rule at all falls back to 9 h incl. 60 min.
+    const ctx = new ScheduleContext([], null, [], [rules[1], rules[0]]);
+    const emp = { id: 'e', departmentId: null };
+    expect(ctx.day(emp, '2026-10-27').rule).toMatchObject({ requiredMinutes: 480, includedBreakMinutes: 0 });
+    expect(ctx.day(emp, '2026-10-28').rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60 });
+    expect(new ScheduleContext([], null, []).day(emp, '2026-10-27').rule).toMatchObject({ requiredMinutes: 540, includedBreakMinutes: 60 });
   });
 
   it('9 h including 60 min break, no break taken: full day, nothing remaining', () => {

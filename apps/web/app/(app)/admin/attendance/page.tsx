@@ -135,7 +135,7 @@ function LiveAttendance() {
       ),
     },
     { id: 'department', header: c.department, sortKey: 'department', cell: (r) => <span className="text-muted-foreground"><bdi>{localized(locale, r.departmentName, r.departmentNameAr) || '—'}</bdi></span> },
-    { id: 'status', header: c.state, sortKey: 'status', cell: (r) => <DayStatusBadge status={r.metrics.status} remote={r.metrics.remote} /> },
+    { id: 'status', header: c.state, sortKey: 'status', cell: (r) => <DayStatusBadge status={r.metrics.status} remote={r.metrics.remote} rotaOff={r.metrics.saturdayRota === 'OFF'} /> },
     { id: 'firstIn', header: c.firstIn, sortKey: 'firstIn', cell: (r) => <span className="tabular" dir="ltr">{formatTime(r.metrics.firstIn, locale)}</span> },
     { id: 'lastOut', header: c.lastOut, cell: (r) => <span className="tabular" dir="ltr">{formatTime(r.metrics.lastOut, locale)}</span> },
     { id: 'net', header: c.netWork, sortKey: 'netWork', cell: (r) => <Minutes value={r.metrics.netWorkMinutes} className="font-semibold" /> },
@@ -282,7 +282,7 @@ function LiveAttendance() {
                     {r.departmentName ? <> · <bdi>{localized(locale, r.departmentName, r.departmentNameAr)}</bdi></> : null}
                   </p>
                 </div>
-                <DayStatusBadge status={r.metrics.status} remote={r.metrics.remote} />
+                <DayStatusBadge status={r.metrics.status} remote={r.metrics.remote} rotaOff={r.metrics.saturdayRota === 'OFF'} />
               </div>
               <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                 <span>

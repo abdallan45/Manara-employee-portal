@@ -1,6 +1,7 @@
 import type { OfficeGeofenceDto } from './attendance';
 // API contract shared by the web app and (later) the Flutter app. Times are ISO-8601 UTC strings.
 import type { PortalVisibility } from './portal';
+import type { SaturdayRotaDay } from './rota';
 
 export const API_PREFIX = '/api/v1';
 
@@ -36,6 +37,8 @@ export const ERROR_CODES = [
   'LEAVE_OVERLAP', 'LEAVE_BALANCE_INSUFFICIENT', 'LEAVE_TYPE_INACTIVE', 'LEAVE_ALREADY_STARTED',
   'REQUEST_NOT_PENDING', 'SELF_APPROVAL_FORBIDDEN', 'APPROVAL_NOT_ALLOWED', 'DUPLICATE_REQUEST',
   'OVERTIME_RETRO_NOT_ALLOWED', 'OVERTIME_EXCEEDS_RECORDED', 'OVERTIME_BELOW_MINIMUM', 'CORRECTION_INVALID',
+  // Overtime asked for a Saturday that is part of the contract (the employee's rota Saturday off)
+  'OVERTIME_CONTRACT_DAY',
   // Leave documents
   'ATTACHMENT_TOO_LARGE', 'ATTACHMENT_TYPE_NOT_ALLOWED', 'ATTACHMENT_LIMIT_REACHED', 'ATTACHMENT_NOT_ALLOWED',
   // Passwords and sessions
@@ -110,6 +113,11 @@ export interface DayMetrics {
   isLate: boolean;
   /** Working day covered by approved remote work (a leave type with isRemoteWork): the schedule applies as usual. */
   remote: boolean;
+  /**
+   * Saturday rota: WORKING = the employee's group works (a normal workday), OFF = their Saturday off (nothing
+   * required, never absent, time worked is recorded but never extra). null = not a rota Saturday for them.
+   */
+  saturdayRota: SaturdayRotaDay | null;
 }
 
 export interface AttendanceStatusDto {

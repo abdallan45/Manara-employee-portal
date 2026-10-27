@@ -158,6 +158,7 @@ export const ar: Dictionary = {
     OVERTIME_RETRO_NOT_ALLOWED: 'يجب الموافقة على العمل الإضافي قبل إنجازه.',
     OVERTIME_EXCEEDS_RECORDED: 'هذا أكثر من الوقت الإضافي المسجل في حضورك لهذا اليوم.',
     OVERTIME_BELOW_MINIMUM: 'هذا أقل من الحد الأدنى لطلب العمل الإضافي.',
+    OVERTIME_CONTRACT_DAY: 'هذا سبت عطلتك في التناوب، وهو من أيام العقد، لذلك لا يُحتسب العمل فيه عملًا إضافيًا.',
     CORRECTION_INVALID: 'هذه الأوقات لا تتوافق مع الحضور المسجل. راجع الجلسة والأوقات.',
     ATTACHMENT_TOO_LARGE: 'حجم الملف كبير جداً (5 ميغابايت كحد أقصى).',
     ATTACHMENT_TYPE_NOT_ALLOWED: 'يمكن إرفاق الصور (JPEG وPNG وWebP) وملفات PDF فقط.',

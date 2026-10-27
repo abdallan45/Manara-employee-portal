@@ -18,15 +18,15 @@ import { useI18n } from '@/lib/i18n/context';
 import { useApi } from '@/lib/use-api';
 import { useDirtyGuard } from '@/lib/use-dirty-guard';
 import { cn } from '@/lib/utils';
+import { SaturdayRotaCard } from './saturday-rota-card';
+import { WorkHoursCard } from './work-hours-card';
 
 type TextKey = 'company.name' | 'company.timezone';
 // The attendance limits live on the Office locations section.
 type NumericKey = Exclude<RangedSettingKey, 'attendance.maxOpenSessionHours' | 'attendance.maxLocationAccuracyMeters'>;
 type FieldKey = TextKey | NumericKey;
-const DAILY_KEY = 'attendance.dailyRequiredMinutes';
-const HOURS: NumericKey[] = [DAILY_KEY, 'attendance.includedBreakMinutes'];
 const NUMERIC: NumericKey[] = ['auth.maxFailedLogins', 'auth.lockoutMinutes', 'auth.sessionHours', 'auth.idleMinutes'];
-const FIELDS: FieldKey[] = ['company.name', 'company.timezone', ...HOURS, ...NUMERIC];
+const FIELDS: FieldKey[] = ['company.name', 'company.timezone', ...NUMERIC];
 /** Common IANA zones for the datalist; Amman first. Any valid zone can be typed. */
 const TIME_ZONES = [
   'Asia/Amman', 'Asia/Riyadh', 'Asia/Dubai', 'Asia/Kuwait', 'Asia/Qatar', 'Asia/Bahrain', 'Asia/Baghdad', 'Asia/Beirut',
@@ -35,20 +35,6 @@ const TIME_ZONES = [
 
 const fieldId = (key: FieldKey) => `set-${key.replace(/\./g, '-')}`;
 
-/** 540 -> "9:00" (the daily hours field shows and takes H:MM). */
-const hoursText = (minutes: number) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
-
-/** "9:00", "8:30" or plain hours ("9", "8.5"), digits in any script, -> whole minutes, or null. */
-function parseHours(text: string): number | null {
-  const parts = text.trim().split(':');
-  const [hours = '', mins] = parts;
-  if (parts.length > 2) return null;
-  const h = parseLocaleNumber(hours);
-  if (mins === undefined) return h === null || h < 0 || !Number.isInteger(h * 60) ? null : h * 60;
-  const m = parseLocaleNumber(mins);
-  if (h === null || m === null || !Number.isInteger(h) || !Number.isInteger(m) || h < 0 || m < 0 || m > 59) return null;
-  return h * 60 + m;
-}
 const isNeverChanged = (s: SettingDto | undefined) => !s || new Date(s.updatedAt).getTime() === 0;
 
 function isValidTimeZone(zone: string): boolean {
@@ -63,7 +49,6 @@ function isValidTimeZone(zone: string): boolean {
 /** The stored value as the text the field shows. */
 function loadedText(key: FieldKey, setting: SettingDto | undefined): string {
   const value = setting?.value ?? SETTING_DEFAULTS[key];
-  if (key === DAILY_KEY) return hoursText(typeof value === 'number' ? value : SETTING_DEFAULTS[DAILY_KEY]);
   return typeof value === 'number' || typeof value === 'string' ? String(value) : String(SETTING_DEFAULTS[key]);
 }
 
@@ -77,7 +62,7 @@ function parsedValue(key: FieldKey, text: string): string | number | undefined {
     const v = text.trim();
     return v && isValidTimeZone(v) ? v : undefined;
   }
-  const n = key === DAILY_KEY ? parseHours(text) : parseLocaleNumber(text);
+  const n = parseLocaleNumber(text);
   const { min, max } = SETTING_RANGES[key];
   return n !== null && Number.isInteger(n) && n >= min && n <= max ? n : undefined;
 }
@@ -94,7 +79,7 @@ function UnitInput({ unit, wrapperClassName, className, ...props }: ComponentPro
   );
 }
 
-/** Company, working hours & sign-in: one form, one sticky "Unsaved changes · Discard · Save changes" bar. */
+/** Company & sign-in: one form, one sticky "Unsaved changes · Discard · Save changes" bar. */
 export function GeneralTab() {
   const settings = useApi<SettingDto[]>('/settings');
 
@@ -105,7 +90,14 @@ export function GeneralTab() {
     const keys = new Set(saved.map((s) => s.key));
     settings.setData([...(settings.data ?? []).filter((s) => !keys.has(s.key)), ...saved]);
   };
-  return <GeneralForm settings={settings.data} onSaved={onSaved} />;
+  return (
+    <div className="space-y-4">
+      <GeneralForm settings={settings.data} onSaved={onSaved} />
+      {/* Its own form: rules are saved one at a time, not with the bar below the settings. */}
+      <WorkHoursCard />
+      <SaturdayRotaCard setting={settings.data.find((s) => s.key === 'attendance.saturdayRotaStart')} onSaved={onSaved} />
+    </div>
+  );
 }
 
 function GeneralForm({ settings, onSaved }: { settings: SettingDto[]; onSaved: (saved: SettingDto[]) => void }) {
@@ -133,7 +125,6 @@ function GeneralForm({ settings, onSaved }: { settings: SettingDto[]; onSaved: (
   const messageFor = (key: FieldKey): string => {
     if (key === 'company.name') return w.general.companyNameRequired;
     if (key === 'company.timezone') return w.general.timeZoneInvalid;
-    if (key === DAILY_KEY) return fmt(w.general.dailyHoursInvalid, { min: hoursText(SETTING_RANGES[key].min), max: hoursText(SETTING_RANGES[key].max) });
     return fmt(w.wholeNumberRange, SETTING_RANGES[key]);
   };
   const validate = (key: FieldKey, text = draft[key]) => {
@@ -217,8 +208,6 @@ function GeneralForm({ settings, onSaved }: { settings: SettingDto[]; onSaved: (
   };
 
   const numeric: Record<NumericKey, { label: string; hint: string; unit: string }> = {
-    'attendance.dailyRequiredMinutes': { label: w.general.dailyHours, hint: w.general.dailyHoursHint, unit: w.units.hours },
-    'attendance.includedBreakMinutes': { label: w.general.includedBreak, hint: w.general.includedBreakHint, unit: w.units.min },
     'auth.maxFailedLogins': { label: g.maxFailedLogins, hint: g.maxFailedLoginsHint, unit: w.units.tries },
     'auth.lockoutMinutes': { label: g.lockoutMinutes, hint: g.lockoutMinutesHint, unit: w.units.min },
     'auth.sessionHours': { label: g.sessionHours, hint: g.sessionHoursHint, unit: w.units.hours },
@@ -229,21 +218,19 @@ function GeneralForm({ settings, onSaved }: { settings: SettingDto[]; onSaved: (
   const numericField = (key: NumericKey) => {
     const f = numeric[key];
     const range = SETTING_RANGES[key];
-    const show = key === DAILY_KEY ? hoursText : String;
     return (
       <div key={key} className="grid gap-1.5">
         <FormField
           id={fieldId(key)}
           label={f.label}
-          hint={`${f.hint} ${fmt(w.rangeHint, { min: show(range.min), max: show(range.max), default: show(SETTING_DEFAULTS[key]) })}`}
+          hint={`${f.hint} ${fmt(w.rangeHint, { min: String(range.min), max: String(range.max), default: String(SETTING_DEFAULTS[key]) })}`}
           error={errors[key]}
         >
           {({ id, describedBy, invalid }) => (
             <UnitInput
               id={id}
               unit={f.unit}
-              inputMode={key === DAILY_KEY ? 'text' : 'numeric'}
-              dir={key === DAILY_KEY ? 'ltr' : undefined}
+              inputMode="numeric"
               wrapperClassName="w-40"
               value={draft[key]}
               onChange={(e) => set(key, e.target.value)}
@@ -322,16 +309,6 @@ function GeneralForm({ settings, onSaved }: { settings: SettingDto[]; onSaved: (
             <CardTitle className="text-base">{w.general.signInTitle}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-5">{NUMERIC.map(numericField)}</CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{w.general.hoursTitle}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-5">
-            {HOURS.map(numericField)}
-            <p className="text-muted-foreground text-xs">{w.general.hoursExample}</p>
-          </CardContent>
         </Card>
       </div>
 

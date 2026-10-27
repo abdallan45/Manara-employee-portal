@@ -27,7 +27,7 @@ export class DepartmentsService {
     if (dto.parentId) await this.assertParent(this.prisma, null, dto.parentId);
     return this.prisma.$transaction(async (tx) => {
       const dept = await tx.department.create({
-        data: { code: dto.code, name: dto.name, nameAr: dto.nameAr ?? null, parentId: dto.parentId ?? null },
+        data: { code: dto.code, name: dto.name, nameAr: dto.nameAr ?? null, parentId: dto.parentId ?? null, saturdayGroup: dto.saturdayGroup ?? null },
       });
       const after = this.toDto(dept, 0);
       await this.audit.record(tx, { actorUserId: actor.userId, action: 'DEPARTMENT_CREATE', entityType: 'Department', entityId: dept.id, after, ipAddress: actor.ip });
@@ -45,7 +45,7 @@ export class DepartmentsService {
       const count = await this.activeEmployees(tx, id);
       const updated = await tx.department.update({
         where: { id },
-        data: { code: dto.code, name: dto.name, nameAr: dto.nameAr, parentId: dto.parentId },
+        data: { code: dto.code, name: dto.name, nameAr: dto.nameAr, parentId: dto.parentId, saturdayGroup: dto.saturdayGroup },
       });
       const after = this.toDto(updated, count);
       await this.audit.record(tx, {
@@ -72,7 +72,7 @@ export class DepartmentsService {
   }
 
   private toDto(d: Department, employeeCount: number): DepartmentDto {
-    return { id: d.id, code: d.code, name: d.name, nameAr: d.nameAr, parentId: d.parentId, employeeCount };
+    return { id: d.id, code: d.code, name: d.name, nameAr: d.nameAr, parentId: d.parentId, employeeCount, saturdayGroup: d.saturdayGroup === 'A' || d.saturdayGroup === 'B' ? d.saturdayGroup : null };
   }
 
   private activeEmployees(db: Db, id: string) {

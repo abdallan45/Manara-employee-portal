@@ -30,10 +30,8 @@ export async function seedPeople(app: INestApplication, opts: { eightHourDay?: b
   // Most request suites were written for an 8-hour day without a break allowance (DAY = 480); the
   // 9-hour company default is covered by the attendance tests (and by suites passing eightHourDay: false).
   if (opts.eightHourDay !== false) {
-    await prisma.systemSetting.createMany({
-      data: [{ key: 'attendance.dailyRequiredMinutes', value: DAY }, { key: 'attendance.includedBreakMinutes', value: 0 }],
-      skipDuplicates: true,
-    });
+    const base = { effectiveFrom: dateOnly.toDb('2000-01-01'), dailyRequiredMinutes: DAY, includedBreakMinutes: 0 };
+    await prisma.workHoursRule.upsert({ where: { effectiveFrom: base.effectiveFrom }, create: base, update: base });
   }
   app.get(SettingsService).invalidate();
   const eng = await createDepartment('ENG', 'Engineering');

@@ -61,7 +61,11 @@ export function DaySheet({ day, sessions, sessionsError, onRetrySessions, onOpen
               <SheetTitle>{formatWorkDate(day.workDate, locale, 'long')}</SheetTitle>
               <SheetDescription asChild>
                 <div className="flex flex-wrap items-center gap-2">
-                  {!day.scheduled.isWorkday && day.status === 'NOT_SCHEDULED' ? <DayOffBadge /> : <DayStatusBadge status={day.status} remote={day.remote} />}
+                  {!day.scheduled.isWorkday && day.status === 'NOT_SCHEDULED' ? (
+                    <DayOffBadge rotaOff={day.saturdayRota === 'OFF'} />
+                  ) : (
+                    <DayStatusBadge status={day.status} remote={day.remote} rotaOff={day.saturdayRota === 'OFF'} />
+                  )}
                   {day.isLate && <LateBadge minutes={day.lateMinutes} />}
                   {day.scheduled.isWorkday && day.scheduled.type === 'FIXED' && (
                     <span className="text-muted-foreground text-xs">

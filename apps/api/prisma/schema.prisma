@@ -129,6 +129,8 @@ model Department {
   name                String
   nameAr              String?              @map("name_ar")
   parentId            String?              @map("parent_id") @db.Uuid
+  /// Saturday rota group (A | B); null = no rota.
+  saturdayGroup       String?              @map("saturday_group")
   parent              Department?          @relation("DepartmentTree", fields: [parentId], references: [id])
   children            Department[]         @relation("DepartmentTree")
   createdAt           DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -174,9 +176,11 @@ model Employee {
   manager              Employee?   @relation("Reports", fields: [managerId], references: [id])
   reports              Employee[]  @relation("Reports")
   hireDate             DateTime?   @map("hire_date") @db.Date
-  /// Personal daily requirement (break included) and break allowance; null = company defaults in settings.
+  /// Personal daily requirement (break included) and break allowance; null = company work-hours rule for the day.
   dailyRequiredMinutes Int?        @map("daily_required_minutes")
   includedBreakMinutes Int?        @map("included_break_minutes")
+  /// Saturday rota group: A | B, NONE = no rota, null = the department's group.
+  saturdayGroup        String?     @map("saturday_group")
   isActive             Boolean     @default(true) @map("is_active")
   createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -733,6 +737,18 @@ model SystemSetting {
   updatedById String?  @map("updated_by_id") @db.Uuid
 
   @@map("system_settings")
+}
+
+/// Company default daily requirement (break included) and break allowance from a date on; the latest rule on or before a day applies.
+model WorkHoursRule {
+  id                   String   @id @default(uuid()) @db.Uuid
+  effectiveFrom        DateTime @unique @map("effective_from") @db.Date
+  dailyRequiredMinutes Int      @map("daily_required_minutes")
+  includedBreakMinutes Int      @map("included_break_minutes")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdById          String?  @map("created_by_id") @db.Uuid
+
+  @@map("work_hours_rules")
 }
 
 // ───────────────────────────── Mascot (Nouria) ─────────────────────────────

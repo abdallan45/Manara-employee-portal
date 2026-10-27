@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { EmployeeDto, Paginated, PERMISSIONS, SETTING_RANGES, SYSTEM_ROLES } from '@workforce/shared';
+import { EmployeeDto, effectiveSaturdayGroup, Paginated, PERMISSIONS, SYSTEM_ROLES, WORK_HOURS_RANGES } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { Db, PrismaService } from '../../common/prisma.service';
@@ -12,7 +12,7 @@ import { SessionService } from '../auth/session.service';
 import { CreateEmployeeDto, EmployeeListQueryDto, UpdateEmployeeDto } from './employees.dto';
 
 const EMPLOYEE_INCLUDE = {
-  department: { select: { name: true, nameAr: true } },
+  department: { select: { name: true, nameAr: true, saturdayGroup: true } },
   user: { include: { roles: { include: { role: { select: { key: true } } }, orderBy: { createdAt: 'asc' } } } },
   supervisors: {
     include: { supervisor: { select: { id: true, username: true, employee: { select: { fullName: true, fullNameAr: true } } } } },
@@ -45,6 +45,8 @@ export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
     hireDate: e.hireDate ? dateOnly.fromDb(e.hireDate) : null,
     dailyRequiredMinutes: e.dailyRequiredMinutes,
     includedBreakMinutes: e.includedBreakMinutes,
+    saturdayGroup: e.saturdayGroup === 'A' || e.saturdayGroup === 'B' || e.saturdayGroup === 'NONE' ? e.saturdayGroup : null,
+    effectiveSaturdayGroup: effectiveSaturdayGroup(e.saturdayGroup, e.department?.saturdayGroup),
     supervisors: e.supervisors.map((s) => ({
       userId: s.supervisor.id, username: s.supervisor.username,
       name: s.supervisor.employee?.fullName ?? null, nameAr: s.supervisor.employee?.fullNameAr ?? null,
@@ -65,13 +67,12 @@ export function toEmployeeDto(e: EmployeeRow): EmployeeDto {
 
 const invalid = (field: string, message: string) => AppError.badRequest('VALIDATION_FAILED', message, [{ field, messages: [message] }]);
 
-/** Personal hours use the same limits as the company defaults in settings; null clears the override. */
+/** Personal hours use the same limits as the company work-hours rules; null clears the override. */
 function assertHours(dto: { dailyRequiredMinutes?: number | null; includedBreakMinutes?: number | null }): void {
-  const fields = { dailyRequiredMinutes: 'attendance.dailyRequiredMinutes', includedBreakMinutes: 'attendance.includedBreakMinutes' } as const;
   for (const field of ['dailyRequiredMinutes', 'includedBreakMinutes'] as const) {
     const v = dto[field];
     if (v === undefined || v === null) continue;
-    const { min, max } = SETTING_RANGES[fields[field]];
+    const { min, max } = WORK_HOURS_RANGES[field];
     if (!Number.isInteger(v) || v < min || v > max) throw invalid(field, `${field} must be a whole number between ${min} and ${max}`);
   }
 }
@@ -199,6 +200,7 @@ export class EmployeesService {
             hireDate: dto.hireDate ? dateOnly.toDb(dto.hireDate) : null,
             dailyRequiredMinutes: dto.dailyRequiredMinutes ?? null,
             includedBreakMinutes: dto.includedBreakMinutes ?? null,
+            saturdayGroup: dto.saturdayGroup ?? null,
             supervisors: { create: supervisorIds.map((supervisorUserId) => ({ supervisorUserId })) },
             user: {
               create: {
@@ -278,6 +280,7 @@ export class EmployeesService {
             hireDate: dto.hireDate === undefined ? undefined : dto.hireDate === null ? null : dateOnly.toDb(dto.hireDate),
             dailyRequiredMinutes: dto.dailyRequiredMinutes,
             includedBreakMinutes: dto.includedBreakMinutes,
+            saturdayGroup: dto.saturdayGroup,
           },
         });
         if (supervisorIds) {

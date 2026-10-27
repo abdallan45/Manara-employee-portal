@@ -1,4 +1,5 @@
 // Contracts for the attendance engine endpoints not covered by api.ts / admin.ts.
+import type { SaturdayGroup } from './rota';
 
 /** Device position sent with check-in / check-out (browser Geolocation API or the mobile app). */
 export interface DeviceLocation {
@@ -83,6 +84,11 @@ export interface EmployeeScheduleDto {
   /** EMPLOYEE / DEPARTMENT assignment, the DEFAULT schedule, or the BUILT_IN fallback (Sun–Thu 08:00–16:00). */
   source: 'EMPLOYEE' | 'DEPARTMENT' | 'DEFAULT' | 'BUILT_IN';
   validTo: string | null;
+  /** Effective Saturday rota group (null = Saturdays follow the schedule) and the rota start (null = no rota). */
+  saturdayGroup: SaturdayGroup | null;
+  saturdayRotaStart: string | null;
+  /** The group's first working Saturday on or after `date`; null without a rota or a group. */
+  nextWorkingSaturday: string | null;
 }
 
 /** Notification `type` keys written by the attendance engine; the UI localises by these. */

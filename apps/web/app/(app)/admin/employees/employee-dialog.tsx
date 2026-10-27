@@ -6,14 +6,13 @@ import { KeyRound, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   PERMISSIONS,
-  SETTING_DEFAULTS,
   SYSTEM_ROLES,
   type CreateEmployeeInput,
+  type CurrentWorkHoursDto,
   type DepartmentDto,
   type EmployeeDto,
   type Paginated,
   type RoleDto,
-  type SettingDto,
   type UpdateEmployeeInput,
 } from '@workforce/shared';
 
@@ -55,13 +54,15 @@ interface FormState {
   /** Personal daily hours (break included) and break minutes; empty = company default. */
   dailyHours: string;
   breakMinutes: string;
+  /** Saturday rota group: INHERIT = the department's group. */
+  saturdayGroup: 'INHERIT' | 'A' | 'B' | 'NONE';
 }
 
 type FieldKey = keyof FormState;
 type Errors = Partial<Record<FieldKey, string>>;
 
 /** Fields in the order they appear (Personal, Job, Access): the first invalid one gets focus. */
-const FIELD_ORDER: FieldKey[] = ['fullName', 'fullNameAr', 'email', 'phone', 'employeeCode', 'jobTitle', 'departmentId', 'managerId', 'hireDate', 'dailyHours', 'breakMinutes', 'username', 'password', 'roleKeys', 'supervisorUserIds'];
+const FIELD_ORDER: FieldKey[] = ['fullName', 'fullNameAr', 'email', 'phone', 'employeeCode', 'jobTitle', 'departmentId', 'managerId', 'hireDate', 'dailyHours', 'breakMinutes', 'saturdayGroup', 'username', 'password', 'roleKeys', 'supervisorUserIds'];
 /** Roles that open company-wide HR access: adding one asks for confirmation first. */
 const PRIVILEGED: string[] = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.HR_ADMIN, SYSTEM_ROLES.GENERAL_MANAGER];
 const APPROVE_PERMISSIONS: string[] = [PERMISSIONS.LEAVE_APPROVE, PERMISSIONS.OVERTIME_APPROVE, PERMISSIONS.CORRECTIONS_APPROVE];
@@ -94,6 +95,7 @@ const EMPTY: FormState = {
   supervisorUserIds: [],
   dailyHours: '',
   breakMinutes: '',
+  saturdayGroup: 'INHERIT',
 };
 
 function fromEmployee(e: EmployeeDto): FormState {
@@ -115,6 +117,7 @@ function fromEmployee(e: EmployeeDto): FormState {
     supervisorUserIds: e.supervisors.map((s) => s.userId),
     dailyHours: e.dailyRequiredMinutes === null ? '' : String(Math.round((e.dailyRequiredMinutes / 60) * 100) / 100),
     breakMinutes: e.includedBreakMinutes === null ? '' : String(e.includedBreakMinutes),
+    saturdayGroup: e.saturdayGroup ?? 'INHERIT',
   };
 }
 
@@ -188,11 +191,12 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   onSaved: (e: EmployeeDto) => void;
 }) {
   const { t, locale, units, errorMessage } = useI18n();
-  const { user: me, can } = useAuth();
+  const { user: me } = useAuth();
   const c = t.approvalChains.employee;
   const f = t.employees.fields;
   const h = t.employeeHub.dialog;
   const sec = t.accountSecurity;
+  const sr = t.saturdayRota;
   // Nobody sets their own password here (the API answers 403): the signed-in user gets a link instead.
   const isSelf = existing !== null && (existing.user?.id === me.id || existing.id === me.employee?.id);
   const [initial] = useState<FormState>(() => (existing ? fromEmployee(existing) : EMPTY));
@@ -214,16 +218,13 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   const roles = useApi<RoleDto[]>('/roles');
   const departments = useApi<DepartmentDto[]>('/departments');
   const managers = useApi<Paginated<EmployeeDto>>('/employees', { status: 'active', page: 1, pageSize: 200 });
-  // Company defaults for the hours placeholders (readable with settings.manage; else the built-in defaults).
-  const settings = useApi<SettingDto[]>(can(PERMISSIONS.SETTINGS_MANAGE) ? '/settings' : null);
-  const settingOf = (key: 'attendance.dailyRequiredMinutes' | 'attendance.includedBreakMinutes'): number => {
-    const v = settings.data?.find((s) => s.key === key)?.value;
-    return typeof v === 'number' ? v : SETTING_DEFAULTS[key];
-  };
-  const defaultDaily = settingOf('attendance.dailyRequiredMinutes');
-  const defaultBreak = settingOf('attendance.includedBreakMinutes');
+  // Company hours in force today, for the placeholders (9 h incl. 60 min until loaded).
+  const companyHours = useApi<CurrentWorkHoursDto>('/settings/work-hours/current');
+  const defaultDaily = companyHours.data?.dailyRequiredMinutes ?? 540;
+  const defaultBreak = companyHours.data?.includedBreakMinutes ?? 60;
 
   const isManager = form.roleKeys.includes(SYSTEM_ROLES.DEPARTMENT_MANAGER);
+  const deptSaturday = departments.data?.find((d) => d.id === form.departmentId)?.saturdayGroup ?? null;
   const managerOptions = useMemo(() => (managers.data?.items ?? []).filter((m) => m.id !== existing?.id), [managers.data, existing]);
 
   useEffect(() => {
@@ -254,11 +255,12 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
   };
 
   const idOf = (key: FieldKey) =>
-    key === 'departmentId' ? 'emp-department' : key === 'managerId' ? 'emp-manager' : key === 'roleKeys' ? `role-${roles.data?.[0]?.key ?? ''}` : `emp-${key}`;
+    key === 'departmentId' ? 'emp-department' : key === 'managerId' ? 'emp-manager' : key === 'saturdayGroup' ? 'emp-saturday' : key === 'roleKeys' ? `role-${roles.data?.[0]?.key ?? ''}` : `emp-${key}`;
   const labelOf = (key: FieldKey): string =>
     key === 'roleKeys' ? f.roles
       : key === 'dailyHours' ? c.dailyHours
         : key === 'breakMinutes' ? c.breakMinutes
+          : key === 'saturdayGroup' ? sr.groupLabel
           : key === 'supervisorUserIds' ? c.supervisors
             : key === 'password' && existing ? f.newPassword : ((f as Record<string, string>)[key] ?? key);
   const addsPrivileged = form.roleKeys.some((k) => PRIVILEGED.includes(k) && !initial.roleKeys.includes(k));
@@ -297,6 +299,7 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
       supervisorUserIds: form.supervisorUserIds,
       dailyRequiredMinutes: hoursToMinutes(form.dailyHours),
       includedBreakMinutes: minutesValue(form.breakMinutes),
+      saturdayGroup: form.saturdayGroup === 'INHERIT' ? null : form.saturdayGroup,
     };
 
     setSaving(true);
@@ -344,7 +347,7 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
     }
   };
 
-  const text = (key: Exclude<FieldKey, 'roleKeys' | 'managedDepartmentIds' | 'supervisorUserIds' | 'departmentId' | 'managerId'>, label: string, opts: { optional?: boolean; required?: boolean; type?: string; ltr?: boolean; hint?: string; autoComplete?: string } = {}) => (
+  const text = (key: Exclude<FieldKey, 'roleKeys' | 'managedDepartmentIds' | 'supervisorUserIds' | 'departmentId' | 'managerId' | 'saturdayGroup'>, label: string, opts: { optional?: boolean; required?: boolean; type?: string; ltr?: boolean; hint?: string; autoComplete?: string } = {}) => (
     <FormField id={`emp-${key}`} label={label} optional={opts.optional} required={opts.required} error={errors[key]} hint={opts.hint}>
       {({ id, describedBy, invalid, required }) => (
         <Input
@@ -464,6 +467,21 @@ function EmployeeForm({ existing, focusField, onDirtyChange, onCancel, onSaved }
               aria-invalid={invalid}
               autoComplete="off"
             />
+          )}
+        </FormField>
+        <FormField id="emp-saturday" label={sr.groupLabel} error={errors.saturdayGroup} hint={sr.employeeHint}>
+          {({ id, describedBy }) => (
+            <Select value={form.saturdayGroup} onValueChange={(v) => set('saturdayGroup', v as FormState['saturdayGroup'])}>
+              <SelectTrigger id={id} className="w-full" aria-describedby={describedBy}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="INHERIT">{fmt(sr.departmentDefault, { value: deptSaturday ? fmt(sr.group, { group: sr.groupNames[deptSaturday] }) : sr.noRotation })}</SelectItem>
+                <SelectItem value="A">{fmt(sr.group, { group: sr.groupNames.A })}</SelectItem>
+                <SelectItem value="B">{fmt(sr.group, { group: sr.groupNames.B })}</SelectItem>
+                <SelectItem value="NONE">{sr.noSaturdays}</SelectItem>
+              </SelectContent>
+            </Select>
           )}
         </FormField>
       </fieldset>

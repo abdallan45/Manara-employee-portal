@@ -30,7 +30,7 @@ beforeEach(async () => {
   people = await seedPeople(app, { eightHourDay: false });
 });
 
-/** Default daily requirement (attendance.dailyRequiredMinutes): 9 h including the break. */
+/** Default daily requirement when no work-hours rule exists: 9 h including the break. */
 const FULL_DAY = 540;
 
 interface Row { employee: { id: string; employeeCode: string }; totals: Record<string, number | null>; days?: unknown[] }

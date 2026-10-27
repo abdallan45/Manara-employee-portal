@@ -8,6 +8,7 @@ import * as employeeSelfService from './employee-self-service';
 import * as mascotAdmin from './mascot-admin';
 import * as navFindability from './nav-findability';
 import * as portalVisibility from './portal-visibility';
+import * as saturdayRota from './saturday-rota';
 import * as uiFoundation from './ui-foundation';
 
 export const areasEn = {
@@ -20,6 +21,7 @@ export const areasEn = {
   mascotAdmin: mascotAdmin.en,
   accountSecurity: accountSecurity.en,
   approvalChains: approvalChains.en,
+  saturdayRota: saturdayRota.en,
 };
 
 export const areasAr: typeof areasEn = {
@@ -32,4 +34,5 @@ export const areasAr: typeof areasEn = {
   mascotAdmin: mascotAdmin.ar,
   accountSecurity: accountSecurity.ar,
   approvalChains: approvalChains.ar,
+  saturdayRota: saturdayRota.ar,
 };

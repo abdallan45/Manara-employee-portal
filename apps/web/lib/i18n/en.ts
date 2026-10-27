@@ -158,6 +158,7 @@ export const en = {
     OVERTIME_RETRO_NOT_ALLOWED: 'Overtime must be approved before it is worked.',
     OVERTIME_EXCEEDS_RECORDED: 'That is more overtime than your attendance records show for this day.',
     OVERTIME_BELOW_MINIMUM: 'This is below the minimum overtime request.',
+    OVERTIME_CONTRACT_DAY: 'This is your Saturday off on the rota. It is part of your contract, so working it is not overtime.',
     CORRECTION_INVALID: 'These times do not fit the recorded attendance. Check the session and times.',
     ATTACHMENT_TOO_LARGE: 'The file is too large (5 MB at most).',
     ATTACHMENT_TYPE_NOT_ALLOWED: 'Only images (JPEG, PNG, WebP) and PDF files can be attached.',

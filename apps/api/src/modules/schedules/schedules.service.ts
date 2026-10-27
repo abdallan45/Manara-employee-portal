@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type Holiday, type ScheduleAssignment } from '@prisma/client';
-import { PERMISSIONS, type EmployeeScheduleDto, type HolidayDto, type ScheduleAssignmentDto, type ScheduleDto } from '@workforce/shared';
+import { nextWorkingSaturday, PERMISSIONS, type EmployeeScheduleDto, type HolidayDto, type ScheduleAssignmentDto, type ScheduleDto } from '@workforce/shared';
 import { AppError } from '../../common/app-error';
 import type { AuthUser } from '../../common/auth';
 import { PrismaService } from '../../common/prisma.service';
@@ -238,7 +238,11 @@ export class SchedulesService {
       });
       validTo = a?.validTo ? dateOnly.fromDb(a.validTo) : null;
     }
-    return { date: day, scheduleId: source === 'BUILT_IN' ? null : schedule.id, scheduleName: schedule.name, source, validTo };
+    const saturdayGroup = context.saturdayGroup(employee);
+    return {
+      date: day, scheduleId: source === 'BUILT_IN' ? null : schedule.id, scheduleName: schedule.name, source, validTo,
+      saturdayGroup, saturdayRotaStart: context.rotaStart, nextWorkingSaturday: nextWorkingSaturday(day, context.rotaStart, saturdayGroup),
+    };
   }
 
   async listHolidays(year?: number): Promise<HolidayDto[]> {

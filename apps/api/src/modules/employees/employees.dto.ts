@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize, ArrayUnique, IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUUID, Length, Matches, MaxLength, ValidateIf,
 } from 'class-validator';
+import type { EmployeeSaturdayGroup } from '@workforce/shared';
 import { PaginationQueryDto } from '../../common/http/pagination';
 import { PASSWORD_MAX, PASSWORD_MIN } from '../auth/password';
 
@@ -64,6 +65,10 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({ nullable: true, example: 60, description: 'Break allowance inside the day in minutes (0-240); null = company default' })
   @Transform(emptyToNull) @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt()
   includedBreakMinutes?: number | null;
+
+  @ApiPropertyOptional({ enum: ['A', 'B', 'NONE'], nullable: true, description: 'Saturday rota group; NONE = no rota; null = the department group' })
+  @Transform(emptyToNull) @IsOptional() @ValidateIf((_, v) => v !== null) @IsIn(['A', 'B', 'NONE'])
+  saturdayGroup?: EmployeeSaturdayGroup | null;
 
   @ApiPropertyOptional({ type: [String], description: 'User ids of the supervisors (project managers); replaces the list on update' })
   @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(20) @IsUUID('all', { each: true })

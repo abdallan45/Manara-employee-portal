@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { PERMISSIONS, type DepartmentDto } from '@workforce/shared';
+import { PERMISSIONS, type DepartmentDto, type SaturdayGroup } from '@workforce/shared';
 
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DataTable, type Column } from '@/components/data-table';
@@ -24,7 +24,7 @@ import { useApi } from '@/lib/use-api';
 const NONE = '__none';
 const CODE_RE = /^[A-Z0-9_-]{2,32}$/;
 /** Form field -> control id, in visual order (error summary and first-error focus follow it). */
-const FIELD_IDS = { code: 'dept-code', name: 'dept-name', nameAr: 'dept-nameAr', parentId: 'dept-parent' } as const;
+const FIELD_IDS = { code: 'dept-code', name: 'dept-name', nameAr: 'dept-nameAr', parentId: 'dept-parent', saturdayGroup: 'dept-saturday' } as const;
 type FieldKey = keyof typeof FIELD_IDS;
 const FIELD_ORDER = Object.keys(FIELD_IDS) as FieldKey[];
 const errorIds = (v: Record<string, string>) => FIELD_ORDER.filter((k) => v[k]).map((k) => FIELD_IDS[k]);
@@ -67,6 +67,15 @@ function Departments() {
     { id: 'name', header: t.common.name, cell: (d) => d.name },
     { id: 'nameAr', header: t.common.nameAr, cell: (d) => <span lang="ar">{d.nameAr ?? '—'}</span> },
     { id: 'parent', header: t.departments.parent, cell: (d) => <span className="text-muted-foreground">{d.parentId ? (byId.get(d.parentId) ? nameOf(byId.get(d.parentId) as DepartmentDto) : '—') : t.departments.noParent}</span> },
+    {
+      id: 'saturday',
+      header: t.saturdayRota.groupLabel,
+      cell: (d) => (
+        <span className="text-muted-foreground">
+          {d.saturdayGroup ? fmt(t.saturdayRota.group, { group: t.saturdayRota.groupNames[d.saturdayGroup] }) : t.saturdayRota.noRotation}
+        </span>
+      ),
+    },
     { id: 'count', header: t.departments.employeeCount, cell: (d) => <span className="tabular">{d.employeeCount}</span> },
     {
       id: 'actions',
@@ -172,19 +181,23 @@ function DepartmentForm({ existing, all, onCancel, onSaved, onDirtyChange }: {
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const { t, locale, errorMessage } = useI18n();
-  const [initial] = useState(() => ({ code: existing?.code ?? '', name: existing?.name ?? '', nameAr: existing?.nameAr ?? '', parentId: existing?.parentId ?? NONE }));
+  const [initial] = useState(() => ({
+    code: existing?.code ?? '', name: existing?.name ?? '', nameAr: existing?.nameAr ?? '', parentId: existing?.parentId ?? NONE,
+    saturdayGroup: (existing?.saturdayGroup ?? NONE) as SaturdayGroup | typeof NONE,
+  }));
   const [code, setCode] = useState(initial.code);
   const [name, setName] = useState(initial.name);
   const [nameAr, setNameAr] = useState(initial.nameAr);
   const [parentId, setParentId] = useState(initial.parentId);
+  const [saturdayGroup, setSaturdayGroup] = useState(initial.saturdayGroup);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const dirty = code !== initial.code || name !== initial.name || nameAr !== initial.nameAr || parentId !== initial.parentId;
+  const dirty = code !== initial.code || name !== initial.name || nameAr !== initial.nameAr || parentId !== initial.parentId || saturdayGroup !== initial.saturdayGroup;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
-  const labelOf: Record<FieldKey, string> = { code: t.common.code, name: t.common.name, nameAr: t.common.nameAr, parentId: t.departments.parent };
+  const labelOf: Record<FieldKey, string> = { code: t.common.code, name: t.common.name, nameAr: t.common.nameAr, parentId: t.departments.parent, saturdayGroup: t.saturdayRota.groupLabel };
   const summary = FIELD_ORDER.filter((k) => errors[k]).map((k) => ({ id: FIELD_IDS[k], message: `${labelOf[k]}: ${errors[k]}` }));
 
   const onSubmit = async (e: FormEvent) => {
@@ -200,7 +213,7 @@ function DepartmentForm({ existing, all, onCancel, onSaved, onDirtyChange }: {
       focusFirstError(errorIds(v));
       return;
     }
-    const body = { code: normalized, name: name.trim(), nameAr: nameAr.trim() || null, parentId: parentId === NONE ? null : parentId };
+    const body = { code: normalized, name: name.trim(), nameAr: nameAr.trim() || null, parentId: parentId === NONE ? null : parentId, saturdayGroup: saturdayGroup === NONE ? null : saturdayGroup };
     setSaving(true);
     try {
       if (existing) await api<DepartmentDto>(`/departments/${encodeURIComponent(existing.id)}`, { method: 'PATCH', body });
@@ -250,6 +263,21 @@ function DepartmentForm({ existing, all, onCancel, onSaved, onDirtyChange }: {
                     {(locale === 'ar' && d.nameAr) || d.name}
                   </SelectItem>
                 ))}
+            </SelectContent>
+          </Select>
+        )}
+      </FormField>
+      <FormField id="dept-saturday" label={t.saturdayRota.groupLabel} hint={t.saturdayRota.departmentHint} error={errors.saturdayGroup}>
+        {({ id, describedBy }) => (
+          <Select value={saturdayGroup} onValueChange={(v) => setSaturdayGroup(v as SaturdayGroup | typeof NONE)}>
+            <SelectTrigger id={id} className="w-full" aria-describedby={describedBy}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>{t.saturdayRota.noRotation}</SelectItem>
+              {(['A', 'B'] as const).map((g) => (
+                <SelectItem key={g} value={g}>{fmt(t.saturdayRota.group, { group: t.saturdayRota.groupNames[g] })}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         )}

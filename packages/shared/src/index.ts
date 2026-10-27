@@ -6,3 +6,4 @@ export * from './requests';
 export * from './reports';
 export * from './portal';
 export * from './mascot';
+export * from './rota';

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
-  MANAGER_STEP, MAX_APPROVAL_STEPS, normalizePortalVisibility, PortalKey, RangedSettingKey, SETTING_DEFAULTS, SETTING_RANGES, SettingDto, SettingKey,
+  isSaturdayDate, MANAGER_STEP, MAX_APPROVAL_STEPS, normalizePortalVisibility, PortalKey, RangedSettingKey, SETTING_DEFAULTS, SETTING_RANGES, SettingDto, SettingKey,
   validatePortalVisibility,
 } from '@workforce/shared';
 import { IANAZone } from 'luxon';
@@ -35,8 +35,6 @@ const VALIDATORS: Record<SettingKey, Validator> = {
   'attendance.locationEnforcement': oneOf('ENFORCE', 'FLAG'),
   'attendance.maxLocationAccuracyMeters': ranged('attendance.maxLocationAccuracyMeters'),
   'attendance.maxOpenSessionHours': ranged('attendance.maxOpenSessionHours'),
-  'attendance.dailyRequiredMinutes': ranged('attendance.dailyRequiredMinutes'),
-  'attendance.includedBreakMinutes': ranged('attendance.includedBreakMinutes'),
   'approvals.overtimeSteps': approvalSteps,
   'approvals.correctionSteps': approvalSteps,
   'auth.maxFailedLogins': ranged('auth.maxFailedLogins'),
@@ -48,6 +46,7 @@ const VALIDATORS: Record<SettingKey, Validator> = {
     ?? (Object.keys(v as object).length === 0 ? 'must set at least one page or section key' : null),
   'mascot.enabled': (v) => (typeof v === 'boolean' ? null : 'must be true or false'),
   'mascot.language': (v) => (v === 'auto' || v === 'ar' || v === 'en' ? null : 'must be auto, ar or en'),
+  'attendance.saturdayRotaStart': (v) => (v === null || (typeof v === 'string' && isSaturdayDate(v)) ? null : 'must be null or a Saturday (YYYY-MM-DD)'),
 };
 
 export const isSettingKey = (key: string): key is SettingKey => Object.prototype.hasOwnProperty.call(SETTING_DEFAULTS, key);

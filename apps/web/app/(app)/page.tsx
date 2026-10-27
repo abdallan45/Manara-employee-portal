@@ -392,6 +392,7 @@ function EmployeeDay() {
   const timeNode = (iso: string | null) => <bdi className="tabular">{formatTime(iso, locale)}</bdi>;
   const leaveToday = data.todayLeave ?? null;
   const holidayToday = data.todayHoliday ?? null;
+  const rotaOffToday = data.today.saturdayRota === 'OFF';
   const checkedOutSessionId =
     (lastAction?.action === 'check-out' ? lastAction.sessionId : null) ??
     (sessions.data ?? []).find((x) => x.endedAt !== null && x.endedAt === data.today.lastOut)?.id ??
@@ -412,7 +413,12 @@ function EmployeeDay() {
 
   let headline: Headline;
   if (data.state === 'WORKING' && data.openSession) {
-    headline = { color: 'var(--status-working)', icon: Timer, title: <Interpolate text={h.workingSince} vars={{ time: timeNode(data.openSession.startedAt) }} /> };
+    headline = {
+      color: 'var(--status-working)',
+      icon: Timer,
+      title: <Interpolate text={h.workingSince} vars={{ time: timeNode(data.openSession.startedAt) }} />,
+      sub: rotaOffToday ? <span className="text-muted-foreground">{t.saturdayRota.homeOffBody}</span> : undefined,
+    };
   } else if (data.state === 'ON_BREAK' && data.openBreak) {
     const vars = { type: <bdi>{breakName(data.openBreak.breakType, locale)}</bdi>, elapsed: <bdi className="tabular">{Math.floor(breakElapsedMin)}</bdi>, max: <bdi className="tabular">{breakMax}</bdi> };
     headline = {
@@ -436,7 +442,15 @@ function EmployeeDay() {
           title: <Interpolate text={h.holidayNamed} vars={{ name: <bdi>{localized(locale, holidayToday.name, holidayToday.nameAr)}</bdi> }} />,
           demoteCheckIn: true,
         }
-      : { color: 'var(--status-none)', icon: Moon, title: h.dayOff, demoteCheckIn: true };
+      : rotaOffToday
+        ? {
+            color: 'var(--status-none)',
+            icon: Moon,
+            title: t.saturdayRota.homeOffTitle,
+            sub: <span className="text-muted-foreground">{t.saturdayRota.homeOffBody}</span>,
+            demoteCheckIn: true,
+          }
+        : { color: 'var(--status-none)', icon: Moon, title: h.dayOff, demoteCheckIn: true };
   } else if (data.today.lastOut) {
     headline = {
       color: 'var(--status-out)',

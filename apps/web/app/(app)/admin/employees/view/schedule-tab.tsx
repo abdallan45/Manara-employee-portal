@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarClock, CalendarX } from 'lucide-react';
-import { PERMISSIONS, type EmployeeDto, type EmployeeScheduleDto, type ScheduleAssignmentDto, type ScheduleDto } from '@workforce/shared';
+import { PERMISSIONS, type CurrentWorkHoursDto, type EmployeeDto, type EmployeeScheduleDto, type ScheduleAssignmentDto, type ScheduleDto } from '@workforce/shared';
 
 import { HelpTip } from '@/components/help-tip';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/states';
@@ -37,6 +37,7 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
   const { can } = useAuth();
   const s = t.employeeHub.schedule;
   const w = t.adminWorkflows.schedules;
+  const sr = t.saturdayRota;
   const canManage = can(PERMISSIONS.SCHEDULES_MANAGE);
   const today = todayInAmman();
   const [assigning, setAssigning] = useState(false);
@@ -45,6 +46,8 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
 
   const schedules = useApi<ScheduleDto[]>(canManage ? '/schedules' : null);
   const assignments = useApi<ScheduleAssignmentDto[]>(canManage ? '/schedules/assignments' : null);
+  const companyHours = useApi<CurrentWorkHoursDto>('/settings/work-hours/current');
+  const breakMinutes = employee.includedBreakMinutes ?? companyHours.data?.includedBreakMinutes;
 
   const scheduleCount = schedules.data?.length;
   useEffect(() => {
@@ -100,8 +103,21 @@ export function ScheduleTab({ employee, name, schedule, openAssign = false, onAs
                   <p className="text-muted-foreground text-sm">
                     {employee.dailyRequiredMinutes != null
                       ? fmt(w.hoursOwn, { duration: formatMinutes(employee.dailyRequiredMinutes, units) })
-                      : w.hoursDefault}
-                    {employee.includedBreakMinutes != null && ` · ${fmt(w.breakOwn, { duration: formatMinutes(employee.includedBreakMinutes, units) })}`}
+                      : companyHours.data
+                        ? fmt(w.hoursCompany, { duration: formatMinutes(companyHours.data.dailyRequiredMinutes, units) })
+                        : w.hoursDefault}
+                    {breakMinutes != null && ` · ${fmt(w.breakOwn, { duration: formatMinutes(breakMinutes, units) })}`}
+                  </p>
+                  <p className="text-muted-foreground text-sm">
+                    {sr.effective}:{' '}
+                    {current.saturdayGroup ? fmt(sr.group, { group: sr.groupNames[current.saturdayGroup] }) : sr.notOnRotation}
+                    {current.saturdayGroup && !current.saturdayRotaStart && ` · ${sr.rotationNotSet}`}
+                    {current.nextWorkingSaturday && (
+                      <>
+                        {' · '}
+                        {sr.nextWorking}: <bdi className="tabular">{formatWorkDate(current.nextWorkingSaturday, locale)}</bdi>
+                      </>
+                    )}
                   </p>
                   {current.source === 'DEPARTMENT' && department && (
                     <p className="text-muted-foreground text-sm">

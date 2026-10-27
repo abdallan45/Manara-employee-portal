@@ -361,7 +361,7 @@ function ProfileFor({ id }: { id: string }) {
           {todayStatus && (
             <span className="inline-flex items-center gap-1.5">
               <span className="text-muted-foreground">{p.todayStatus}:</span>
-              <DayStatusBadge status={todayStatus.status} remote={todayStatus.remote} pulse={todayStatus.status === 'WORKING'} />
+              <DayStatusBadge status={todayStatus.status} remote={todayStatus.remote} rotaOff={todayStatus.saturdayRota === 'OFF'} pulse={todayStatus.status === 'WORKING'} />
             </span>
           )}
           {chips.length > 0 && (
